@@ -7,7 +7,7 @@ name = "lume-sync"
 version = "0.2.0"
 description = "Sincronização pessoal de Google Drive para Linux"
 requires-python = ">=3.11"
-dependencies = ["PySide6>=6.6,<7", "requests>=2.31,<3"]
+dynamic = ["dependencies"]
 
 [project.scripts]
 lume-sync = "lumesync.app:main"
@@ -15,3 +15,6 @@ lume-sync-cli = "lumesync.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["lumesync*"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
