@@ -7,7 +7,7 @@ import sys
 from pathlib import Path,PurePosixPath
 
 ROOT=Path(__file__).resolve().parents[1]
-ROOT_FILES={'.gitignore','.lumeignore','README.md','SECURITY.md','PUBLICATION.md','pyproject.toml','start.sh','sincronizar-meus-arquivos.sh'}
+ROOT_FILES={'.gitignore','.lumeignore','README.md','SECURITY.md','PUBLICATION.md','pyproject.toml','start.sh','sincronizar-meus-arquivos.sh','requirements.txt','setup.sh'}
 PATTERNS={
     'Google OAuth secret':re.compile(rb'GOCSPX-[A-Za-z0-9_-]{12,}'),
     'Google access token':re.compile(rb'ya29\.[A-Za-z0-9_.-]{16,}'),
