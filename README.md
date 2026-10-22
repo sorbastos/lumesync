@@ -16,10 +16,15 @@ As pastas online e offline são separadas. Documentos nativos Google aparecem co
 Requer Python 3.11+, PySide6, requests, rclone, FUSE3 e systemd de usuário para a montagem. Ainda não há pacote RPM ou instalador tradicional.
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e .
+bash setup.sh
 bash start.sh
 ```
+
+O instalador cria `.venv` sem compartilhar pacotes do sistema, instala as dependências de `requirements.txt` e o projeto em modo editável. O Python do sistema é usado apenas para criar o ambiente; não recebe instalações. Os lançadores exigem a `.venv` e não recorrem ao Python global. Não é necessário ativar o ambiente. Para escolher outro Python compatível, use `PYTHON_BIN=python3.12 bash setup.sh`.
+
+`pyproject.toml` mantém os metadados e lê as dependências do mesmo `requirements.txt`, evitando listas divergentes. As faixas de versões não constituem um lockfile.
+
+Depois de mover o projeto, recrie a `.venv`: ambientes virtuais não são portáveis. Não remova `runtime/` ao recriar o ambiente.
 
 Uma cópia nova inicia em demonstração, sem conta conectada. Para gerar arquivos fictícios:
 
@@ -51,14 +56,20 @@ O cache online tem alvo de 2 GiB e buffer de 8 MiB por arquivo aberto. Esse alvo
 
 ```bash
 .venv/bin/python -m unittest discover -s tests
-python3 scripts/check_publication.py --staged
+.venv/bin/python scripts/check_publication.py --staged
 ```
 
 Os testes usam dados fictícios e diretórios temporários. Não usam credenciais de uma conta real. Alguns testes de filtros exigem rclone instalado.
 
+Para instalar a proteção de commit neste clone:
+
+```bash
+.venv/bin/python scripts/install_git_hooks.py
+```
+
 ## Publicação segura
 
-Leia [PUBLICATION.md](PUBLICATION.md) e [SECURITY.md](SECURITY.md). A lista de permissão do Git, o verificador local e o hook ajudam a impedir inclusões acidentais; não substituem revisão humana e não garantem ausência de vulnerabilidades.
+O verificador local e o hook ajudam a impedir inclusões acidentais; não substituem revisão humana e não garantem ausência de vulnerabilidades.
 
 Ainda não foi definida uma licença de redistribuição. O projeto é experimental e não tem equivalência completa com clientes comerciais. Não há garantia de operação sob perda de energia, rede instável prolongada ou edições concorrentes em vários computadores.
 
