@@ -18,7 +18,7 @@ Requer Python 3.11+, PySide6, requests, rclone, FUSE3 e systemd de usuário para
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
-./start.sh
+bash start.sh
 ```
 
 Uma cópia nova inicia em demonstração, sem conta conectada. Para gerar arquivos fictícios:
@@ -34,7 +34,7 @@ Habilite a Google Drive API em um projeto próprio do Google Cloud e crie um cli
 Depois de conectar, execute:
 
 ```bash
-./sincronizar-meus-arquivos.sh
+bash sincronizar-meus-arquivos.sh
 ```
 
 O preparador cria pastas sob `~/Lume Sync/`, adiciona favoritos no Dolphin e usa um serviço de usuário transitório para a montagem. Não há início automático instalado no login.
