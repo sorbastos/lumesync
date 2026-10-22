@@ -1,0 +1,3 @@
+# Dependências de execução; fonte única usada também pelo pyproject.toml.
+PySide6>=6.6,<7
+requests>=2.31,<3
