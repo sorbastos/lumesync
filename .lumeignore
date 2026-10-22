@@ -1,0 +1,15 @@
+# Exclusões do Lume Sync — mesma ideia do .gitignore.
+.venv/
+venv/
+ambiente/
+__pycache__/
+*.pyc
+.git/
+node_modules/
+.Trash-*/
+.lume-*
+*.insyncdl
+.lumeignore
+# /Filmes/
+# *.tmp
+# !anotacoes.tmp

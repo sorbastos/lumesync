@@ -1,0 +1,37 @@
+# Publicação por lista de permissão. Arquivos novos precisam de revisão.
+/**
+!/.gitignore
+!/.lumeignore
+!/README.md
+!/SECURITY.md
+!/PUBLICATION.md
+!/pyproject.toml
+!/start.sh
+!/sincronizar-meus-arquivos.sh
+!/lumesync/
+!/lumesync/*.py
+!/tests/
+!/tests/test_*.py
+!/scripts/
+!/scripts/check_publication.py
+!/scripts/install_git_hooks.py
+# Defesas adicionais, inclusive dentro das pastas de código.
+runtime/
+demo/
+google-validacao/
+__pycache__/
+.venv/
+.env
+.env.*
+*.pyc
+*.db
+*.sqlite*
+*.log
+*.conf
+*.pem
+*.key
+*.p12
+*.pfx
+client_secret*.json
+*token*.json
+*credentials*.json
