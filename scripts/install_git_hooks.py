@@ -3,6 +3,7 @@
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 
 root=Path(__file__).resolve().parents[1]
 if not (root/'.git').is_dir():raise SystemExit('Initialize a standalone Git repository in this directory first.')
@@ -11,6 +12,9 @@ if Path(actual).resolve()!=root:raise SystemExit('Refusing an inherited parent G
 script=root/'scripts/check_publication.py'
 hook=root/'.git/hooks/pre-commit'
 if hook.exists():raise SystemExit('Existing pre-commit hook preserved; integrate the publication check manually.')
-hook.write_text('#!/bin/sh\nexec python3 '+shlex.quote(str(script))+' --staged\n')
+python = root / '.venv/bin/python'
+if sys.prefix == sys.base_prefix or not python.is_file():
+    raise SystemExit('Use .venv/bin/python scripts/install_git_hooks.py after bash setup.sh.')
+hook.write_text('#!/bin/sh\nexec '+shlex.quote(str(python))+' -I '+shlex.quote(str(script))+' --staged\n')
 hook.chmod(0o755)
 print('Local publication guard installed.')
