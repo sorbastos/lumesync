@@ -92,4 +92,102 @@ class GuiTests(unittest.TestCase):
                 finally:window.close();self.app.processEvents()
 
 
-if __name__ == '__main__': unittest.main()
+
+class StatusAndRetryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        root = Path(self.directory.name)
+        self.config = {'mode': 'drive', 'access_mode': 'online', 'local': str(root/'mount'),
+                       'offline_local': str(root/'Offline'), 'remote': str(root/'remote'),
+                       'root_id': 'root', 'interval': 60, 'ignores': [],
+                       'pins': [{'remote_id': 'id', 'path': 'a.txt', 'label': 'a.txt'}]}
+        self.load = patch('lumesync.app.load', return_value=self.config); self.load.start()
+        self.logging = patch.object(Window, 'log'); self.logging.start()
+        self.window = Window(); self.window.force_exit = True
+
+    def tearDown(self):
+        self.window.close(); self.app.processEvents()
+        self.load.stop(); self.logging.stop(); self.directory.cleanup()
+
+    def result(self, errors=None):
+        from lumesync.core import Action, Item
+        item = Item('a.txt', 'hash', 4)
+        return {'config': self.config, 'relative': '', 'mounted': True,
+                'entries': [{'ID': 'id', 'Name': 'a.txt', 'Size': 4}, {'ID': 'other', 'Name': 'cloud.txt', 'Size': 1}],
+                'offline_actions': [Action('a.txt', 'download', 'Novo na nuvem', None, item)], 'errors': errors or []}
+
+    def test_cloud_pending_and_active_states(self):
+        self.window.completed_online(self.result())
+        self.assertEqual(self.window.table.item(0, 1).text(), 'Aguardando download')
+        self.assertIn('Na nuvem', self.window.table.item(1, 1).text())
+        self.window.receive_transfer({'path': 'a.txt', 'kind': 'download'})
+        self.assertEqual(self.window.table.item(0, 1).text(), 'Baixando…')
+
+    def test_failed_file_survives_metadata_refresh_and_retry_is_scoped(self):
+        self.window.last_request = {'job': 'offline-sync'}
+        self.window.completed_online(self.result([{'path': 'a.txt', 'message': 'Connection timed out'}]))
+        self.window.last_request = {'job': 'scan'}
+        self.window.completed_online(self.result())
+        self.assertIn('Erro', self.window.table.item(0, 1).text())
+        self.assertIn('Confira a internet', self.window.issues.toPlainText())
+        with patch.object(self.window, 'start') as start:
+            self.window.retry_failed()
+            start.assert_called_once_with('offline-sync', retry_paths={'a.txt'})
+
+    def test_successful_retry_clears_error(self):
+        self.window.file_errors = {'a.txt': 'timeout'}
+        self.window.last_request = {'job': 'offline-sync'}
+        self.window.completed_online(self.result())
+        self.assertEqual(self.window.file_errors, {})
+        self.assertIsNone(self.window.retry_context)
+
+    def test_global_failure_offers_retry_without_replaying_resolution(self):
+        self.window.last_request = {'job': 'offline-resolve', 'relative': '', 'entry': None, 'client': None}
+        self.window.failure('Connection timed out')
+        self.assertIn('Confira a internet', self.window.subtitle.text())
+        with patch.object(self.window, 'start') as start:
+            self.window.retry_failed()
+            start.assert_called_once_with('scan', client=None)
+
+    def test_retry_replans_without_downloading_unrelated_file(self):
+        from lumesync.app import Worker
+        root = Path(self.directory.name); local = root/'local'; remote = root/'remote'
+        local.mkdir(); remote.mkdir()
+        (remote/'a.txt').write_text('retry this')
+        (remote/'other.txt').write_text('not selected for retry')
+        config = {**self.config, 'access_mode': 'offline', 'mode': 'demo', 'local': str(local), 'remote': str(remote)}
+        events = []; results = []; errors = []
+        worker = Worker(config, 'sync'); worker.retry_paths = {'a.txt'}
+        worker.transferring.connect(events.append); worker.completed.connect(results.append); worker.failed.connect(errors.append)
+        def build(_):
+            return Engine(local, LocalProvider(remote), State(root/'state'))
+        with patch('lumesync.app.build', side_effect=build):
+            worker.run()
+        self.assertFalse(errors)
+        self.assertEqual((local/'a.txt').read_text(), 'retry this')
+        self.assertFalse((local/'other.txt').exists())
+        self.assertEqual(events, [{'path': 'a.txt', 'kind': 'download'}])
+        self.assertTrue(results)
+
+    def test_retry_does_not_overwrite_new_conflict(self):
+        from lumesync.app import Worker
+        root = Path(self.directory.name); local = root/'local'; remote = root/'remote'
+        local.mkdir(); remote.mkdir()
+        (local/'a.txt').write_text('local change')
+        (remote/'a.txt').write_text('cloud change')
+        config = {**self.config, 'access_mode': 'offline', 'mode': 'demo', 'local': str(local), 'remote': str(remote)}
+        worker = Worker(config, 'sync'); worker.retry_paths = {'a.txt'}
+        errors = []; worker.failed.connect(errors.append)
+        with patch('lumesync.app.build', side_effect=lambda _: Engine(local, LocalProvider(remote), State(root/'state'))):
+            worker.run()
+        self.assertFalse(errors)
+        self.assertEqual((local/'a.txt').read_text(), 'local change')
+        self.assertEqual((remote/'a.txt').read_text(), 'cloud change')
+
+
+if __name__ == '__main__':
+    unittest.main()
