@@ -6,12 +6,13 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QUrl
-from PySide6.QtGui import QAction, QDesktopServices, QIcon, QColor, QPixmap, QPainter
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QColor, QPixmap, QPainter, QPalette
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QTabWidget,
     QFormLayout, QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QFileDialog,
     QMessageBox, QCheckBox, QSystemTrayIcon, QMenu, QAbstractItemView, QScrollArea)
 
+from .themes import DARK_STYLE, load_theme, save_theme, stylesheet
 from . import __version__
 from .config import DATA, load, save, build
 from .drive import authorize
@@ -107,6 +108,7 @@ class Window(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = load()
+        self.theme = load_theme()
         self.worker = None
         self.force_exit = False
         self.actions = []
@@ -247,6 +249,12 @@ class Window(QMainWindow):
         form.setContentsMargins(20, 20, 20, 20); form.setSpacing(15)
         self.mode = QComboBox(); self.mode.addItems(["Demonstração · duas pastas", "Google Drive"])
         self.mode.setCurrentIndex(0 if self.config["mode"] == "demo" else 1)
+        self.theme_selector = QComboBox()
+        self.theme_selector.addItem('Escuro', 'dark')
+        self.theme_selector.addItem('Claro', 'light')
+        self.theme_selector.setCurrentIndex(1 if self.theme == 'light' else 0)
+        self.theme_selector.currentIndexChanged.connect(self.change_theme)
+        form.addRow('Aparência', self.theme_selector)
         form.addRow("Conta", self.mode)
         self.local = QLineEdit(self.config["local"])
         form.addRow("Pasta local", self.folder_field(self.local))
@@ -291,7 +299,54 @@ class Window(QMainWindow):
             self.tray.activated.connect(lambda reason: self.showNormal() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
             self.tray.show()
         self.configure_access_controls()
+        self.apply_theme()
         self.log('Pronto. ' + ('Drive sob demanda; cópias offline somente dos itens marcados.' if self.is_online() else 'Modo de cópia local.'))
+
+    def apply_theme(self):
+        application = QApplication.instance()
+        light = self.theme == 'light'
+        palette = QPalette()
+        colors = {
+            QPalette.ColorRole.Window: '#f6f8fb' if light else '#111b23',
+            QPalette.ColorRole.WindowText: '#1b3040' if light else '#dbe6ed',
+            QPalette.ColorRole.Base: '#ffffff' if light else '#14212b',
+            QPalette.ColorRole.AlternateBase: '#f0f5f9' if light else '#182833',
+            QPalette.ColorRole.Text: '#1b3040' if light else '#dbe6ed',
+            QPalette.ColorRole.Button: '#e7edf3' if light else '#243745',
+            QPalette.ColorRole.ButtonText: '#1b3040' if light else '#dbe6ed',
+            QPalette.ColorRole.Highlight: '#00745a' if light else '#2e4a59',
+            QPalette.ColorRole.HighlightedText: '#ffffff',
+            QPalette.ColorRole.ToolTipBase: '#ffffff' if light else '#1b2a36',
+            QPalette.ColorRole.ToolTipText: '#1b3040' if light else '#dbe6ed',
+        }
+        for role, color in colors.items():
+            palette.setColor(role, QColor(color))
+        application.setPalette(palette)
+        application.setStyleSheet(stylesheet(self.theme))
+        if not self.is_online():
+            for row, action in enumerate(getattr(self, 'rows', [])):
+                item = self.table.item(row, 1)
+                if item:
+                    item.setForeground(self.state_color(action.kind))
+
+    def state_color(self, kind):
+        attention = kind in ('conflict', 'deletion', 'blocked')
+        if self.theme == 'light':
+            return QColor('#895000' if attention else '#00664f')
+        return QColor('#ffbf69' if attention else '#70dbb7')
+
+    def change_theme(self):
+        selected = self.theme_selector.currentData()
+        try:
+            save_theme(selected)
+        except OSError as error:
+            self.theme_selector.blockSignals(True)
+            self.theme_selector.setCurrentIndex(1 if self.theme == 'light' else 0)
+            self.theme_selector.blockSignals(False)
+            QMessageBox.warning(self, 'Aparência', str(error))
+            return
+        self.theme = selected
+        self.apply_theme()
 
     def is_online(self):
         return self.config.get('access_mode') == 'online'
@@ -628,7 +683,7 @@ class Window(QMainWindow):
             size_label = f"{size / 1024 / 1024:.1f} MB" if size >= 1024 * 1024 else f"{size / 1024:.1f} KB"
             for col, text in enumerate([action.path, ('Erro · tentar novamente' if action.path in self.file_errors else STATES[action.kind]), size_label, self.file_errors.get(action.path, action.reason)]):
                 item = QTableWidgetItem(text)
-                if col == 1: item.setForeground(QColor("#ffbf69" if action.kind in ("conflict", "deletion", "blocked") else "#70dbb7"))
+                if col == 1: item.setForeground(self.state_color(action.kind))
                 self.table.setItem(i, col, item)
         for notice in result.get("notices", []): self.log(notice)
         self.status.setText("Sua decisão é necessária" if attention else "Pronto para sincronizar" if counts["upload"] + counts["download"] else "Tudo em dia")
@@ -744,29 +799,7 @@ def app_icon():
     return QIcon(pixmap)
 
 
-STYLE = """
-QWidget { background: #111b23; color: #dbe6ed; font-family: 'Noto Sans', sans-serif; font-size: 13px; }
-QLabel#brand { font-size: 23px; font-weight: 700; color: #70dbb7; }
-QLabel#headline { font-size: 27px; font-weight: 650; }
-QLabel#badge { background: #203e42; color: #8ce5ca; border-radius: 6px; padding: 7px 12px; font-size: 11px; }
-QFrame#card { background: #1b2a36; border: 1px solid #2a3c49; border-radius: 10px; padding: 9px; }
-QFrame#card QLabel { background: transparent; color: #adbfcd; }
-QFrame#card QLabel#number { font-size: 30px; font-weight: 700; color: #f5f8fa; }
-QPushButton { background: #243745; border: 1px solid #385264; padding: 10px 14px; border-radius: 6px; }
-QPushButton:hover { background: #314a5d; }
-QPushButton:disabled { color: #75838b; background: #1b2831; border-color: #253743; }
-QPushButton#primary { background: #70dbb7; color: #102c29; border: none; font-weight: 700; }
-QPushButton#primary:disabled { background: #294940; color: #839d94; }
-QTabWidget::pane { border: 1px solid #2a3c49; border-radius: 5px; }
-QTabBar::tab { padding: 11px 22px; color: #9cb2c2; }
-QTabBar::tab:selected { color: #70dbb7; border-bottom: 2px solid #70dbb7; }
-QTableWidget { border: none; background: #14212b; alternate-background-color: #182833; gridline-color: #233643; }
-QHeaderView::section { background: #1e303e; border: none; padding: 10px; text-align: left; color: #a8bfce; }
-QTableWidget::item { padding: 8px; }
-QTableWidget::item:selected { background: #2e4a59; }
-QLineEdit, QPlainTextEdit, QSpinBox, QComboBox { background: #162630; border: 1px solid #36505f; border-radius: 5px; padding: 7px; }
-QLabel#footer { color: #859daa; font-size: 11px; }
-"""
+STYLE = DARK_STYLE
 
 
 def main():

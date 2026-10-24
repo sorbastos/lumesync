@@ -27,6 +27,8 @@ bash start.sh
 
 O primeiro comando cria o ambiente virtual `.venv` e instala as dependências nele. Nenhum pacote é instalado no Python global.
 
+Em **Configurações → Aparência**, escolha o tema **Escuro** ou **Claro**. A escolha é salva automaticamente.
+
 Nas próximas vezes, basta executar `bash start.sh`. Ainda não há instalador RPM nem início automático ao entrar no sistema.
 
 ## Conectar o Google Drive
