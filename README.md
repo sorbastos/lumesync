@@ -40,14 +40,6 @@ bash sincronizar-meus-arquivos.sh
 
 As pastas ficam em `~/Lume Sync/`, com atalhos no Dolphin. Cada pessoa deve usar suas próprias credenciais; a autorização permite acesso amplo ao Drive.
 
-## Cuidados
-
-- Não compartilhe a pasta `runtime/`: ela contém credenciais e dados privados.
-- Não apague o cache enquanto houver alterações pendentes de envio.
-- Se mover o projeto, recrie a `.venv` com `bash setup.sh`. Preserve a pasta `runtime/`.
-- Documentos do Google aparecem como links no acesso online. Para uso offline, precisam ser exportados.
-- Arquivos com nomes duplicados no Drive podem ter limitações no gerenciador de arquivos.
-
 ## Desenvolvimento
 
 Rodar os testes:
