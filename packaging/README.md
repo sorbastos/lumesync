@@ -18,11 +18,11 @@ Para usar um rpmbuild extraído localmente, defina `RPMBUILD=/caminho/para/rpmbu
 ## Instalar e remover
 
 ```bash
-sudo dnf install ./dist/lumesync-0.3.0-1.fc44.x86_64.rpm
+sudo dnf install ./dist/lumesync-0.3.1-1.fc44.x86_64.rpm
 sudo dnf remove lumesync
 ```
 
-Após instalar, abra **Lume Sync** no menu. Os comandos `lume-sync` e `lume-sync-cli` também ficam disponíveis. Após autorizar a conta nas configurações, `lume-sync-conectar` prepara as pastas do Drive.
+Após instalar, abra **Lume Sync** no menu. Os comandos `lume-sync` e `lume-sync-cli` também ficam disponíveis. A interface prepara as pastas automaticamente após a autorização; `lume-sync-conectar` continua disponível como alternativa pelo terminal.
 
 ## Arquivos
 

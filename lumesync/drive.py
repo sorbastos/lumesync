@@ -96,6 +96,8 @@ class DriveProvider:
             raise ValueError("ID de pasta Google Drive inválido")
         self.token_path = token_path
         self.root_id = root_id
+        if not token_path.is_file():
+            raise RuntimeError('Conta do Google Drive não conectada. Abra Configurações e clique em Conectar Google Drive.')
         self.token = json.loads(token_path.read_text())
         self.session = requests.Session()
         self.notices: list[str] = []

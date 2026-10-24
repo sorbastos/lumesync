@@ -29,6 +29,7 @@ class ThemeTests(unittest.TestCase):
 
     def tearDown(self):
         for window in self.windows:
+            window.force_exit=True
             window.close()
         self.app.processEvents()
         self.store_patch.stop(); self.config_patch.stop(); self.log_patch.stop()

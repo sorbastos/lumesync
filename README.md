@@ -19,10 +19,10 @@ O acesso online usa cache e ocupa espaço no disco. Os arquivos escolhidos para 
 O pacote RPM é preparado para **Fedora 44 x86_64**. Depois de baixar o arquivo:
 
 ```bash
-sudo dnf install ./lumesync-0.3.0-1.fc44.x86_64.rpm
+sudo dnf install ./lumesync-0.3.1-1.fc44.x86_64.rpm
 ```
 
-Abra **Lume Sync** pelo menu de aplicativos. Para preparar as pastas após conectar a conta, execute `lume-sync-conectar`.
+Abra **Lume Sync** pelo menu de aplicativos. A pasta do Drive é preparada automaticamente após conectar a conta.
 
 A versão instalada guarda seus dados em `~/.local/share/lumesync/` e não importa automaticamente a conta usada no projeto. Veja [os detalhes do pacote](packaging/README.md) para usar um perfil existente ou construir o RPM.
 
@@ -46,29 +46,11 @@ Nas próximas vezes, basta executar `bash start.sh`. O início automático ao en
 ## Conectar o Google Drive
 
 1. No Google Cloud, habilite a Google Drive API e crie uma credencial OAuth do tipo **Aplicativo para computador**. Se o projeto estiver em teste, adicione sua conta aos usuários de teste.
-2. No app, abra **Configurações → Conectar Google Drive**, selecione o JSON da credencial e autorize sua conta no navegador.
-3. Execute:
+2. Em **Configurações**, escolha **Todo o Meu Drive** ou **Uma pasta específica**. Para uma pasta específica, cole o link completo dela.
+3. Clique em **Conectar Google Drive**, selecione o JSON da credencial e autorize sua conta no navegador.
 
-```bash
-bash sincronizar-meus-arquivos.sh
-```
+O app prepara as pastas e os atalhos no Dolphin automaticamente. Você escolhe depois o que quer manter offline. Cada pessoa usa suas próprias credenciais.
 
-As pastas ficam em `~/Lume Sync/`, com atalhos no Dolphin. Cada pessoa deve usar suas próprias credenciais; a autorização permite acesso amplo ao Drive.
-
-## Desenvolvimento
-
-Rodar os testes:
-
-```bash
-.venv/bin/python -m unittest discover -s tests
-```
-
-Instalar a verificação antes dos commits:
-
-```bash
-.venv/bin/python scripts/install_git_hooks.py
-```
-
-As dependências ficam em `requirements.txt`; os metadados, em `pyproject.toml`.
+Fechar a janela mantém o app em segundo plano. Abra-o pelo ícone próximo ao relógio; para encerrar, use **Aplicativo → Sair**. Sem bandeja disponível, a janela fica minimizada.
 
 O projeto ainda não tem licença de redistribuição definida.

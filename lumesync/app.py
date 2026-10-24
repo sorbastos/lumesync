@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QFormLayout, QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QFileDialog,
     QMessageBox, QCheckBox, QSystemTrayIcon, QMenu, QAbstractItemView, QScrollArea)
 
+from .folders import drive_folder
 from .themes import DARK_STYLE, load_theme, save_theme, stylesheet
 from . import __version__
 from .config import DATA, DEFAULT_IGNORE, load, save, build
@@ -45,6 +46,11 @@ class Worker(QThread):
             if self.job == "auth":
                 authorize(Path(self.client), DATA / "google-token.json", self.message.emit)
                 self.completed.emit({"authorized": True})
+                return
+            if self.job == 'setup-drive':
+                from .online import setup
+                controller = setup(config=self.config)
+                self.completed.emit({'setup': True, 'config': controller.config})
                 return
             if self.config.get('access_mode') == 'online':
                 from .online import OnlineDrive
@@ -111,6 +117,7 @@ class Window(QMainWindow):
         self.theme = load_theme()
         self.worker = None
         self.force_exit = False
+        self.pending_setup = False
         self.actions = []
         self.current_relative = ''
         self.online_entries = []
@@ -124,6 +131,8 @@ class Window(QMainWindow):
         self.resize(1160, 790)
         self.setMinimumSize(850, 640)
         self.setWindowIcon(app_icon())
+        application_menu = self.menuBar().addMenu('Aplicativo')
+        application_menu.addAction('Sair', self.request_quit)
         outer = QWidget()
         self.setCentralWidget(outer)
         layout = QVBoxLayout(outer)
@@ -261,19 +270,34 @@ class Window(QMainWindow):
         self.remote = QLineEdit(self.config["remote"])
         self.remote_field = self.folder_field(self.remote)
         form.addRow("Nuvem de demonstração", self.remote_field)
+        self.remote_field_label = form.labelForField(self.remote_field)
         self.remote_field.setEnabled(self.mode.currentIndex() == 0)
         self.mode.currentIndexChanged.connect(lambda index: self.remote_field.setEnabled(index == 0))
-        self.root_id = QLineEdit(self.config.get("root_id", "root"))
-        form.addRow("ID da pasta no Drive", self.root_id)
-        hint = QLabel('Use “root” para Meu Drive ou o ID no final do endereço de uma pasta do Google Drive.')
-        hint.setWordWrap(True); form.addRow("", hint)
+        self.drive_scope = QComboBox()
+        self.drive_scope.addItem('Todo o Meu Drive', 'all')
+        self.drive_scope.addItem('Uma pasta específica', 'folder')
+        scope = self.config.get('drive_scope', 'all' if self.config.get('root_id', 'root') == 'root' else 'folder')
+        self.drive_scope.setCurrentIndex(0 if scope == 'all' else 1)
+        form.addRow('O que mostrar do Drive?', self.drive_scope)
+        self.drive_scope_label = form.labelForField(self.drive_scope)
+        self.root_id = QLineEdit('' if scope == 'all' else 'https://drive.google.com/drive/folders/' + self.config.get('root_id', ''))
+        self.root_id.setPlaceholderText('Cole o link da pasta do Google Drive')
+        form.addRow('Link da pasta', self.root_id)
+        self.folder_link_label = form.labelForField(self.root_id)
+        self.drive_scope.currentIndexChanged.connect(self.scope_changed)
+        self.scope_changed()
+        hint = QLabel('Você verá os arquivos sem baixar tudo. Escolha depois quais quer manter no computador.')
+        hint.setWordWrap(True); form.addRow('', hint)
+        self.scope_hint = hint
+        self.mode.currentIndexChanged.connect(self.configure_mode_fields)
+        self.configure_mode_fields()
+        connect = QPushButton("Conectar Google Drive…")
+        connect.clicked.connect(self.connect_google)
+        form.addRow("", connect)
         self.interval = QSpinBox(); self.interval.setRange(15, 3600); self.interval.setSuffix(" segundos")
         self.interval.setValue(self.config.get("interval", 60)); form.addRow("Intervalo", self.interval)
         self.ignores = QPlainTextEdit("\n".join(self.config["ignores"])); self.ignores.setMaximumHeight(130)
         form.addRow("Ignorar · uma regra por linha", self.ignores)
-        connect = QPushButton("Conectar Google Drive…")
-        connect.clicked.connect(self.connect_google)
-        form.addRow("", connect)
         self.save_button = QPushButton("Salvar configurações")
         self.save_button.clicked.connect(self.save_settings)
         form.addRow("", self.save_button)
@@ -282,25 +306,87 @@ class Window(QMainWindow):
         form.addRow('', edit_ignore)
         note = QLabel('No modo sob demanda, use Manter neste computador para escolher cópias offline.\nAs exclusões do .lumeignore são aplicadas à montagem ao reconectar o Drive.')
         note.setWordWrap(True); form.addRow("", note)
+        background_note = QLabel('Fechar a janela mantém o app em segundo plano. Para encerrar, use Aplicativo → Sair ou o ícone próximo ao relógio.')
+        background_note.setWordWrap(True); form.addRow('', background_note)
         settings_scroll = QScrollArea(); settings_scroll.setWidgetResizable(True); settings_scroll.setWidget(settings)
-        self.tabs.addTab(settings_scroll, 'Configurações')
+        self.settings_tab_index = self.tabs.addTab(settings_scroll, 'Configurações')
         footer = QLabel(f"Lume Sync {__version__}  •  Cópias locais + Google Drive  •  Exclusões automáticas desativadas")
         footer.setObjectName("footer"); layout.addWidget(footer)
         self.timer = QTimer(self); self.timer.timeout.connect(self.tick)
-        self.tray = None
-        if QSystemTrayIcon.isSystemTrayAvailable():
-            self.tray = QSystemTrayIcon(app_icon(), self)
-            self.tray.setToolTip("Lume Sync")
-            menu = QMenu()
-            show = menu.addAction("Abrir Lume Sync"); show.triggered.connect(self.showNormal)
-            pause = menu.addAction("Pausar sincronização"); pause.triggered.connect(self.pause)
-            quit_action = menu.addAction("Sair"); quit_action.triggered.connect(self.request_quit)
-            self.tray.setContextMenu(menu)
-            self.tray.activated.connect(lambda reason: self.showNormal() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
-            self.tray.show()
+        self.tray = QSystemTrayIcon(app_icon(), self)
+        self.tray.setToolTip('Lume Sync · em segundo plano')
+        menu = QMenu(self)
+        menu.addAction('Abrir Lume Sync', self.restore_window)
+        menu.addAction('Pausar sincronização', self.pause)
+        menu.addAction('Sair', self.request_quit)
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(lambda reason: self.restore_window() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
+        self.tray_timer = QTimer(self)
+        self.tray_timer.timeout.connect(self.update_tray)
+        self.tray_timer.start(3000)
+        self.update_tray()
         self.configure_access_controls()
         self.apply_theme()
+        if self.needs_connection():
+            self.show_connection_prompt()
         self.log('Pronto. ' + ('Drive sob demanda; cópias offline somente dos itens marcados.' if self.is_online() else 'Modo de cópia local.'))
+
+    def update_tray(self):
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            if not self.tray.isVisible():
+                self.tray.show()
+        elif not self.isVisible() and self.isHidden() and getattr(self, 'background_hidden', False):
+            self.showMinimized()
+
+    def configure_mode_fields(self):
+        drive = self.mode.currentIndex() == 1
+        self.remote_field.setVisible(not drive)
+        self.remote_field_label.setVisible(not drive)
+        self.drive_scope.setVisible(drive)
+        self.drive_scope_label.setVisible(drive)
+        self.scope_hint.setVisible(drive)
+        self.scope_changed()
+
+    def scope_changed(self):
+        specific = self.mode.currentIndex() == 1 and self.drive_scope.currentData() == 'folder'
+        self.root_id.setVisible(specific)
+        self.folder_link_label.setVisible(specific)
+
+    def needs_connection(self):
+        return self.config.get('mode') == 'drive' and not (DATA/'google-token.json').is_file()
+
+    def show_connection_prompt(self):
+        self.status.setText('Conecte sua conta do Google Drive')
+        self.subtitle.setText('Em Configurações, clique em Conectar Google Drive e autorize sua conta. Nenhum arquivo será baixado em massa.')
+        self.tabs.setCurrentIndex(self.settings_tab_index)
+        self.scan_button.setEnabled(False)
+        self.sync_button.setText('Conectar Google Drive')
+        self.sync_button.setEnabled(True)
+
+    def form_config(self):
+        mode = 'demo' if self.mode.currentIndex() == 0 else 'drive'
+        root = drive_folder(self.drive_scope.currentData(), self.root_id.text()) if mode == 'drive' else self.config.get('root_id', 'root')
+        if self.is_online() and self.drive_scope.currentData() == 'all' and self.config.get('drive_scope') == 'all':
+            root = self.config.get('root_id', root)
+        return {**self.config, 'mode': mode, 'local': self.local.text().strip(),
+                'remote': self.remote.text().strip(), 'root_id': root,
+                'drive_scope': self.drive_scope.currentData(), 'interval': self.interval.value(),
+                'ignores': [p.strip() for p in self.ignores.toPlainText().splitlines() if p.strip()]}
+
+    def setup_drive(self):
+        try:
+            config = self.form_config()
+        except ValueError as error:
+            QMessageBox.warning(self, 'Escolha a pasta', str(error))
+            return
+        config['mode'] = 'drive'
+        self.start('setup-drive', config=config)
+
+    def restore_window(self):
+        self.background_hidden = False
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
 
     def apply_theme(self):
         application = QApplication.instance()
@@ -479,6 +565,9 @@ class Window(QMainWindow):
         if not self.retry_context or self.worker and self.worker.isRunning():
             return
         context = copy.deepcopy(self.retry_context)
+        if context['job'] == 'setup-drive':
+            self.setup_drive()
+            return
         # Rebuild the plan; never replay a stale conflict resolution.
         if 'retry_paths' in context:
             self.start(context['job'], retry_paths=context['retry_paths'])
@@ -602,15 +691,21 @@ class Window(QMainWindow):
         if self.worker and self.worker.isRunning():
             QMessageBox.information(self, "Transferência em andamento", "Aguarde a operação atual terminar para salvar.")
             return
-        config = {**self.config, "mode": "demo" if self.mode.currentIndex() == 0 else "drive", "local": self.local.text().strip(),
-                  "remote": self.remote.text().strip(), "root_id": self.root_id.text().strip(),
-                  "interval": self.interval.value(), "ignores": [p.strip() for p in self.ignores.toPlainText().splitlines() if p.strip()]}
+        try:
+            config = self.form_config()
+        except ValueError as error:
+            QMessageBox.warning(self, 'Escolha a pasta', str(error))
+            return
+        if config['mode'] == 'drive' and (DATA/'google-token.json').is_file() and (not self.is_online() or config['root_id'] != self.config.get('root_id') or config['drive_scope'] != self.config.get('drive_scope')):
+            self.start('setup-drive', config=config)
+            return
         if not config["local"] or config["mode"] == "demo" and not config["remote"]:
             QMessageBox.warning(self, "Pasta necessária", "Informe as pastas antes de salvar."); return
         try:
             if config.get('ignore_file'):
                 Path(config['ignore_file']).write_text(self.ignores.toPlainText() + '\n', encoding='utf-8')
-            if config['mode'] == 'demo': config['access_mode'] = 'offline'
+            if config['mode'] == 'demo' or not (DATA/'google-token.json').is_file():
+                config['access_mode'] = 'offline'
             save(config)
             self.config = config; self.actions = []; self.table.setRowCount(0); self.preview_config = None
             for card in self.cards.values(): card.setText("—")
@@ -621,18 +716,25 @@ class Window(QMainWindow):
             self.retry_context = None
             self.retry_button.setVisible(False)
             self.configure_access_controls()
-            self.log('Configurações salvas. As exclusões online são aplicadas ao reconectar o Drive.')
+            if self.needs_connection():
+                self.show_connection_prompt()
+            self.log('Configurações salvas.')
         except Exception as error:
             self.failure(str(error))
 
-    def start(self, job, actions=None, resolutions=None, client=None, retry_paths=None, release_path=None):
+    def start(self, job, actions=None, resolutions=None, client=None, retry_paths=None, release_path=None, config=None):
+        if self.force_exit:
+            return
         if self.worker and self.worker.isRunning(): return
+        if job != 'auth' and self.needs_connection():
+            self.show_connection_prompt()
+            return
         self.last_request = {'job': job, 'relative': self.current_relative,
                              'entry': copy.deepcopy(getattr(self, 'selected_online_entry', None)), 'client': client, 'release_path': release_path}
         if retry_paths is not None:
             self.last_request['retry_paths'] = set(retry_paths)
         self.retry_button.setEnabled(False)
-        self.worker = Worker(self.config, job, actions, resolutions, client)
+        self.worker = Worker(config if config is not None else self.config, job, actions, resolutions, client)
         self.worker.retry_paths = retry_paths
         self.worker.release_path = release_path
         self.release_button.setEnabled(False)
@@ -654,6 +756,9 @@ class Window(QMainWindow):
         self.worker.start()
 
     def sync_preview(self):
+        if self.needs_connection():
+            self.connect_google()
+            return
         if self.is_online():
             self.start('sync')
             return
@@ -663,6 +768,17 @@ class Window(QMainWindow):
 
     def completed(self, result):
         self.active_transfer = None
+        if result.get('setup'):
+            self.config = result['config']
+            self.mode.setCurrentIndex(1)
+            self.local.setText(self.config['local'])
+            self.drive_scope.setCurrentIndex(0 if self.config.get('drive_scope') == 'all' else 1)
+            self.current_relative = ''
+            self.configure_access_controls()
+            self.status.setText('Google Drive pronto')
+            self.subtitle.setText('Escolha quais arquivos quer manter no computador.')
+            self.pending_scan = True
+            return
         if result.get('online'):
             self.completed_online(result)
             return
@@ -673,7 +789,9 @@ class Window(QMainWindow):
             return
         if result.get("authorized"):
             self.status.setText("Google Drive conectado")
-            self.log("Autorização concluída. Escolha Google Drive nas configurações e salve.")
+            self.mode.setCurrentIndex(1)
+            self.pending_setup = True
+            self.log('Conta autorizada. Preparando o acesso aos arquivos…')
             return
         self.actions = result["actions"]
         self.preview_config = copy.deepcopy(self.config)
@@ -702,6 +820,8 @@ class Window(QMainWindow):
         self.log(f'Análise: {counts["upload"]} envios, {counts["download"]} recebimentos, {attention} pendências.')
 
     def idle(self):
+        if self.force_exit:
+            return
         self.active_transfer = None
         if self.is_online():
             self.render_online_rows()
@@ -712,6 +832,14 @@ class Window(QMainWindow):
         self.sync_button.setEnabled(self.is_online() or self.preview_config == self.config and bool(self.actions))
         self.pause_button.setEnabled(self.auto.isChecked())
         self.selection_changed()
+        if self.needs_connection():
+            self.show_connection_prompt()
+        if self.pending_setup:
+            self.pending_setup = False
+            QTimer.singleShot(0, self.setup_drive)
+        elif getattr(self, 'pending_scan', False):
+            self.pending_scan = False
+            QTimer.singleShot(0, lambda: self.start('scan'))
 
     def failure(self, text):
         self.auto.setChecked(False)
@@ -780,25 +908,46 @@ class Window(QMainWindow):
     def connect_google(self):
         if self.worker and self.worker.isRunning(): return
         client, _ = QFileDialog.getOpenFileName(self, "Credenciais OAuth · aplicativo para computador", "", "JSON (*.json)")
-        if client: self.start("auth", client=client)
+        if client:
+            try:
+                drive_folder(self.drive_scope.currentData(), self.root_id.text())
+            except ValueError as error:
+                QMessageBox.warning(self, 'Escolha a pasta', str(error))
+                return
+            self.start("auth", client=client)
 
     def request_quit(self):
         self.force_exit = True
+        self.pause()
         if self.worker and self.worker.isRunning():
-            self.worker.finished.connect(self.close)
+            self.status.setText('Concluindo a operação atual para sair…')
+            self.worker.finished.connect(self.finish_exit)
+        else:
+            self.finish_exit()
+
+    def finish_exit(self):
+        self.force_exit = True
         self.close()
+        QApplication.instance().quit()
 
     def closeEvent(self, event):
-        if self.is_online() and self.tray and not self.force_exit:
-            self.hide()
+        if not self.force_exit:
+            if self.tray and QSystemTrayIcon.isSystemTrayAvailable():
+                self.background_hidden = True
+                self.hide()
+            else:
+                self.showMinimized()
+                self.subtitle.setText('O app continua funcionando. Sem área de notificação disponível, a janela fica minimizada. Use Aplicativo → Sair para encerrar.')
             event.ignore()
             return
         self.pause()
         if self.worker and self.worker.isRunning():
-            self.status.setText("Aguarde a operação atual para sair")
+            self.status.setText('Aguarde a operação atual para sair')
             event.ignore()
         else:
-            if self.tray: self.tray.hide()
+            self.tray_timer.stop()
+            if self.tray:
+                self.tray.hide()
             event.accept()
 
 
@@ -816,6 +965,7 @@ STYLE = DARK_STYLE
 def main():
     monitor = '--monitor' in sys.argv
     app = QApplication([arg for arg in sys.argv if arg != '--monitor'])
+    app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("Lume Sync")
     app.setDesktopFileName("io.github.sorbastos.LumeSync")
     app.setStyle("Fusion")

@@ -49,7 +49,7 @@ class GuiTests(unittest.TestCase):
                     self.assertEqual(window.cards['equal'].text(), '2')
                     self.assertEqual(window.cards['attention'].text(), '1')
                 finally:
-                    window.close(); self.app.processEvents()
+                    window.force_exit=True; window.close(); self.app.processEvents()
 
 
     def test_online_ui_shows_pin_and_never_starts_bulk_sync(self):

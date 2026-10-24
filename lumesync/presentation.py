@@ -8,6 +8,8 @@ STATES = {"equal": "Disponível offline · em dia", "upload": "Aguardando envio"
 
 def error_help(message):
     text = message.casefold()
+    if 'conta do google drive não conectada' in text or ('google-token.json' in text and ('no such file' in text or 'inexistente' in text)):
+        return 'Conecte sua conta do Google Drive', 'Abra Configurações e clique em Conectar Google Drive.'
     if 'a cópia ainda não está igual' in text:
         return 'A cópia offline tem pendências', 'Sincronize o arquivo ou resolva o conflito antes de liberar espaço.'
     if any(word in text for word in ('espaço', 'no space left', 'disk full')):

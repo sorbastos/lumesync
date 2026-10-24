@@ -227,21 +227,26 @@ class OnlineDrive:
                 'include_paths':[p['path'] for p in self.config.get('pins',[])]}
 
 
-def setup(home=None):
+def setup(home=None, config=None):
     from .setup_real import add_place
     home=home if home is not None else Path.home()
-    old=load();provider=DriveProvider(DATA/'google-token.json',old.get('root_id','root'))
-    root=provider.request('GET',API+'/root',params={'fields':'id,mimeType'}).json()
-    if root.get('mimeType')!=FOLDER:raise RuntimeError('Raiz do Google Drive não encontrada')
+    old=load() if config is None else config
+    requested = 'root' if old.get('drive_scope') == 'all' else old.get('root_id', 'root')
+    provider=DriveProvider(DATA/'google-token.json',requested)
+    root=provider.request('GET',API+'/'+requested,params={'fields':'id,mimeType'}).json()
+    if root.get('mimeType')!=FOLDER:raise RuntimeError('O link precisa ser de uma pasta do Google Drive. Selecione uma pasta e tente novamente.')
     parent=home/'Lume Sync';ignore=parent/'.lumeignore'
     if parent.is_symlink():raise ValueError('A pasta Lume Sync não pode ser um link simbólico')
     parent.mkdir(parents=True,exist_ok=True)
     if not ignore.exists():ignore.write_text(DEFAULT_TEXT)
     config={**old,'mode':'drive','access_mode':'online','root_id':root['id'],
             'local':str(parent/'Google Drive'),'offline_local':str(parent/'Offline'),
-            'ignore_file':str(ignore),'pins':old.get('pins',[]),'interval':60}
+            'ignore_file':str(ignore),'pins':old.get('pins',[]),'interval':60,
+            'drive_scope':old.get('drive_scope', 'all' if requested == 'root' else 'folder')}
     private_json(DATA/('config-before-online-'+str(time.time_ns())+'.json'),old)
-    controller=OnlineDrive(config);controller.start()
+    controller=OnlineDrive(config)
+    controller.configure_backend()
+    controller.start()
     add_place(home/'.local/share/user-places.xbel',controller.folder)
     offline=Path(config['offline_local']);offline.mkdir(parents=True,exist_ok=True)
     add_place(home/'.local/share/user-places.xbel',offline)
