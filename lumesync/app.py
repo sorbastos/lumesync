@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 from . import __version__
 from .config import DATA, load, save, build
 from .drive import authorize
+from .presentation import STATES, error_help, pin_for_entry, offline_state
 
 LABELS = {"equal": "Em dia", "upload": "Enviar", "download": "Receber", "conflict": "Conflito",
           "deletion": "Decidir ausência", "blocked": "Bloqueado"}
@@ -24,6 +25,8 @@ class Worker(QThread):
     completed = Signal(object)
     failed = Signal(str)
     message = Signal(str)
+    planned = Signal(object)
+    transferring = Signal(object)
 
     def __init__(self, config, job, actions=None, resolutions=None, client=None):
         super().__init__()
@@ -32,6 +35,7 @@ class Worker(QThread):
         self.stop_event = threading.Event()
         self.relative = ''
         self.entry = None
+        self.retry_paths = None
 
     def run(self):
         engine = None
@@ -49,18 +53,22 @@ class Worker(QThread):
                     controller.start()
                 elif self.job == 'online-reconnect':
                     controller.reconnect()
-                elif self.job in ('pin', 'offline-sync', 'offline-resolve'):
-                    if self.job == 'pin':
-                        path = controller.pin(self.entry, self.relative)
-                        self.message.emit('Cópia offline selecionada: ' + path)
-                    if controller.config.get('pins'):
-                        engine = build(controller.offline_config())
-                        engine.provider.cancelled = self.stop_event.is_set
-                        engine.provider.progress = self.message.emit
-                        plan = self.actions if self.actions is not None else engine.plan()
-                        engine.apply(plan, self.resolutions, self.message.emit, self.stop_event.is_set, continue_on_error=True)
-                        offline_actions = engine.plan()
+                if self.job == 'pin':
+                    path = controller.pin(self.entry, self.relative)
+                    self.message.emit('Cópia offline selecionada: ' + path)
+                if controller.config.get('pins'):
+                    engine = build(controller.offline_config())
+                    engine.provider.cancelled = self.stop_event.is_set
+                    engine.provider.progress = self.message.emit
+                    plan = self.actions if self.actions is not None else engine.plan()
+                    self.planned.emit({"actions": plan, "config": controller.config})
+                    if self.job in ('pin', 'offline-sync', 'offline-resolve'):
+                        if self.retry_paths is not None:
+                            plan = [a for a in plan if a.path in self.retry_paths]
+                        engine.apply(plan, self.resolutions, self.message.emit, self.stop_event.is_set,
+                                     continue_on_error=True, transfer=self.transferring.emit)
                         errors = engine.errors
+                    offline_actions = engine.plan()
                 directory = self.relative.rpartition('/')[0] if self.job == 'pin' else self.relative
                 entries = controller.entries(directory)
                 self.completed.emit({'online': True, 'entries': entries, 'relative': directory,
@@ -71,8 +79,11 @@ class Worker(QThread):
             engine.provider.cancelled = self.stop_event.is_set
             engine.provider.progress = self.message.emit
             actions = self.actions if self.actions is not None else engine.plan()
+            self.planned.emit(actions)
+            if self.retry_paths is not None:
+                actions = [a for a in actions if a.path in self.retry_paths]
             if self.job in ("sync", "resolve"):
-                engine.apply(actions, self.resolutions, self.message.emit, self.stop_event.is_set, continue_on_error=True)
+                engine.apply(actions, self.resolutions, self.message.emit, self.stop_event.is_set, continue_on_error=True, transfer=self.transferring.emit)
                 actions = engine.plan()
             self.completed.emit({'actions': actions, 'notices': engine.provider.notices,
                                  'warnings': getattr(engine.provider, 'warnings', []),
@@ -99,6 +110,10 @@ class Window(QMainWindow):
         self.online_entries = []
         self.offline_actions = []
         self.preview_config = None
+        self.file_errors = {}
+        self.active_transfer = None
+        self.retry_context = None
+        self.last_request = None
         self.setWindowTitle("Lume Sync")
         self.resize(1160, 790)
         self.setMinimumSize(850, 640)
@@ -154,11 +169,15 @@ class Window(QMainWindow):
         open_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(self.config["local"])))
         bar.addWidget(open_button)
         layout.addLayout(bar)
+        self.retry_button = QPushButton('Tentar novamente')
+        self.retry_button.clicked.connect(self.retry_failed)
+        self.retry_button.setVisible(False)
+        layout.addWidget(self.retry_button)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs, 1)
         files = QWidget(); file_layout = QVBoxLayout(files)
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Arquivo", "Ação", "Tamanho", "Motivo"])
+        self.table.setHorizontalHeaderLabels(["Arquivo", "Estado", "Tamanho", "Detalhes"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -283,6 +302,7 @@ class Window(QMainWindow):
             self.card_titles['equal'].setText('Acesso ao Drive')
             self.card_titles['upload'].setText('Cache temporário · alvo')
             self.card_titles['download'].setText('Cópias offline selecionadas')
+            self.table.setToolTip('Na nuvem: acesso sob demanda, podendo usar cache temporário. Offline: cópia sincronizada na pasta Offline.')
             self.timer.start(60000)
             ignore = Path(self.config.get('ignore_file', ''))
             if ignore.is_file(): self.ignores.setPlainText(ignore.read_text())
@@ -295,30 +315,108 @@ class Window(QMainWindow):
         self.cards['upload'].setText('2 GiB')
         self.cards['download'].setText(str(len(self.config.get('pins', []))))
         errors = result.get('errors', [])
-        existing_attention = sum(a.kind in ('conflict', 'deletion', 'blocked') for a in self.offline_actions)
-        self.cards['attention'].setText(str(existing_attention + len(errors)))
-        self.table.setRowCount(len(self.online_entries))
-        pinned = {pin['remote_id'] for pin in self.config.get('pins', [])}
-        for row, entry in enumerate(self.online_entries):
-            status = 'Marcado offline' if entry.get('ID') in pinned else 'Sob demanda'
-            size = 'Pasta' if entry.get('IsDir') else f"{max(0, entry.get('Size', 0))/1024/1024:.1f} MiB"
-            label = entry['Name'] + (' · ID ' + entry.get('ID', '')[-8:] if entry.get('_duplicate') else '')
-            reason = 'Nome duplicado; clique para abrir no navegador ou marque offline' if entry.get('_duplicate') else 'Clique duas vezes para abrir'
-            values = [label, status, size, reason]
-            for col, value in enumerate(values): self.table.setItem(row, col, QTableWidgetItem(value))
         if result.get('offline_actions') is not None:
             self.offline_actions = result['offline_actions']
-            self.offline_table.setRowCount(len(self.offline_actions))
-            for row, action in enumerate(self.offline_actions):
-                for col, text in enumerate([action.path, LABELS[action.kind], action.reason]):
-                    self.offline_table.setItem(row, col, QTableWidgetItem(text))
-            attention = sum(a.kind in ('conflict', 'deletion', 'blocked') for a in self.offline_actions) + len(errors)
-            self.cards['attention'].setText(str(attention))
-        self.issues.setPlainText('\n'.join(e['path'] + ': ' + e['message'] for e in errors))
+        elif not self.config.get('pins'):
+            self.offline_actions = []
+        self.update_errors(errors)
+        self.render_online_rows()
+        self.render_offline_rows()
+        attention = sum(a.kind in ('conflict', 'deletion', 'blocked') for a in self.offline_actions) + len(self.file_errors)
+        self.cards['attention'].setText(str(attention))
+        self.show_errors()
         self.status.setText('Seu Drive, sem cópia integral no computador' if result['mounted'] else 'Conecte o Drive para acessar pelo Dolphin')
         self.subtitle.setText(f"{len(self.online_entries)} itens nesta pasta · /{self.current_relative} · Offline em {self.config.get('offline_local', '')}")
         self.back_button.setEnabled(bool(self.current_relative))
+        if self.file_errors:
+            self.status.setText('1 arquivo com erro' if len(self.file_errors) == 1 else f'{len(self.file_errors)} arquivos com erro')
+            self.subtitle.setText('Veja o motivo em Pendências e clique em Tentar novamente.')
         self.log('Lista online atualizada. Nenhum download em massa foi solicitado.')
+
+    def render_online_rows(self):
+        self.table.setRowCount(len(self.online_entries))
+        for row, entry in enumerate(self.online_entries):
+            pin = pin_for_entry(entry, self.current_relative, self.config.get('pins', []))
+            state = offline_state(pin['path'], self.offline_actions, self.file_errors, self.active_transfer) if pin else 'Na nuvem · sob demanda'
+            label = entry['Name'] + (' · ID ' + entry.get('ID', '')[-8:] if entry.get('_duplicate') else '')
+            size = 'Pasta' if entry.get('IsDir') else f"{max(0, entry.get('Size', 0))/1024/1024:.1f} MiB"
+            detail = 'Nome duplicado; abre no navegador' if entry.get('_duplicate') else 'Clique duas vezes para abrir'
+            if pin:
+                error = next((message for path, message in self.file_errors.items()
+                              if path == pin['path'] or path.startswith(pin['path'].rstrip('/') + '/')), None)
+                if error:
+                    title, guidance = error_help(error)
+                    detail = title + '. ' + guidance
+            for col, value in enumerate([label, state, size, detail]):
+                self.table.setItem(row, col, QTableWidgetItem(value))
+
+    def render_offline_rows(self):
+        self.offline_table.setRowCount(len(self.offline_actions))
+        for row, action in enumerate(self.offline_actions):
+            state = offline_state(action.path, [action], self.file_errors, self.active_transfer)
+            reason = self.file_errors.get(action.path, action.reason)
+            for col, text in enumerate([action.path, state, reason]):
+                self.offline_table.setItem(row, col, QTableWidgetItem(text))
+
+    def update_errors(self, errors):
+        # A metadata refresh must not erase a failed transfer.
+        job = (self.last_request or {}).get('job')
+        if job in ('sync', 'resolve', 'pin', 'offline-sync', 'offline-resolve'):
+            if self.worker and self.worker.retry_paths is not None:
+                for path in self.worker.retry_paths:
+                    self.file_errors.pop(path, None)
+            elif self.worker and self.worker.actions is not None:
+                for action in self.worker.actions:
+                    self.file_errors.pop(action.path, None)
+            else:
+                self.file_errors.clear()
+        self.file_errors.update({e['path']: e['message'] for e in errors})
+        if self.file_errors:
+            self.retry_context = {'job': 'offline-sync' if self.is_online() else 'sync',
+                                  'retry_paths': set(self.file_errors)}
+        else:
+            self.retry_context = None
+        self.retry_button.setVisible(bool(self.retry_context))
+
+    def show_errors(self, warnings=()):
+        lines = list(warnings)
+        for path, message in self.file_errors.items():
+            title, help_text = error_help(message)
+            lines.append(f'{path}\n{title}. {help_text}\nDetalhe: {message}\n')
+        self.issues.setPlainText('\n'.join(lines))
+
+    def receive_plan(self, actions):
+        self.active_transfer = None
+        if isinstance(actions, dict):
+            self.config = actions['config']
+            actions = actions['actions']
+        if self.is_online():
+            self.offline_actions = actions
+            self.render_offline_rows()
+            self.render_online_rows()
+
+    def receive_transfer(self, event):
+        self.active_transfer = event
+        self.status.setText(('Baixando: ' if event['kind'] == 'download' else 'Enviando: ') + event['path'])
+        if self.is_online():
+            self.render_offline_rows()
+            self.render_online_rows()
+        else:
+            for row, action in enumerate(getattr(self, 'rows', [])):
+                if action.path == event['path']:
+                    self.table.setItem(row, 1, QTableWidgetItem('Baixando…' if event['kind'] == 'download' else 'Enviando…'))
+
+    def retry_failed(self):
+        if not self.retry_context or self.worker and self.worker.isRunning():
+            return
+        context = copy.deepcopy(self.retry_context)
+        # Rebuild the plan; never replay a stale conflict resolution.
+        if 'retry_paths' in context:
+            self.start(context['job'], retry_paths=context['retry_paths'])
+        else:
+            self.current_relative = context['relative']
+            self.selected_online_entry = context['entry']
+            self.start(context['job'], client=context.get('client'))
 
     def open_online_entry(self, row, column):
         if not self.is_online() or not 0 <= row < len(self.online_entries): return
@@ -410,14 +508,25 @@ class Window(QMainWindow):
             self.sync_button.setEnabled(False)
             self.badge.setText("DEMONSTRAÇÃO" if config["mode"] == "demo" else "GOOGLE DRIVE")
             self.status.setText("Configurações salvas")
+            self.file_errors.clear()
+            self.retry_context = None
+            self.retry_button.setVisible(False)
             self.configure_access_controls()
             self.log('Configurações salvas. As exclusões online são aplicadas ao reconectar o Drive.')
         except Exception as error:
             self.failure(str(error))
 
-    def start(self, job, actions=None, resolutions=None, client=None):
+    def start(self, job, actions=None, resolutions=None, client=None, retry_paths=None):
         if self.worker and self.worker.isRunning(): return
+        self.last_request = {'job': job, 'relative': self.current_relative,
+                             'entry': copy.deepcopy(getattr(self, 'selected_online_entry', None)), 'client': client}
+        if retry_paths is not None:
+            self.last_request['retry_paths'] = set(retry_paths)
+        self.retry_button.setEnabled(False)
         self.worker = Worker(self.config, job, actions, resolutions, client)
+        self.worker.retry_paths = retry_paths
+        self.worker.planned.connect(self.receive_plan)
+        self.worker.transferring.connect(self.receive_transfer)
         self.worker.relative = self.current_relative
         self.worker.entry = getattr(self, 'selected_online_entry', None)
         if job == 'pin':
@@ -441,6 +550,7 @@ class Window(QMainWindow):
         self.start("sync", self.actions)
 
     def completed(self, result):
+        self.active_transfer = None
         if result.get('online'):
             self.completed_online(result)
             return
@@ -460,8 +570,9 @@ class Window(QMainWindow):
             self.cards[key].setText(str(counts[key]))
         warnings = result.get('warnings', [])
         errors = result.get('errors', [])
-        self.issues.setPlainText('\n'.join(warnings + [e['path'] + ': ' + e['message'] for e in errors]))
-        attention = counts["conflict"] + counts["deletion"] + counts["blocked"] + len(warnings) + len(errors)
+        self.update_errors(errors)
+        self.show_errors(warnings)
+        attention = counts["conflict"] + counts["deletion"] + counts["blocked"] + len(warnings) + len(self.file_errors)
         self.cards["attention"].setText(str(attention))
         rows = sorted(self.actions, key=lambda a: (a.kind == "equal", a.path))
         self.rows = rows
@@ -469,7 +580,7 @@ class Window(QMainWindow):
         for i, action in enumerate(rows):
             size = (action.local or action.remote).size
             size_label = f"{size / 1024 / 1024:.1f} MB" if size >= 1024 * 1024 else f"{size / 1024:.1f} KB"
-            for col, text in enumerate([action.path, LABELS[action.kind], size_label, action.reason]):
+            for col, text in enumerate([action.path, ('Erro · tentar novamente' if action.path in self.file_errors else STATES[action.kind]), size_label, self.file_errors.get(action.path, action.reason)]):
                 item = QTableWidgetItem(text)
                 if col == 1: item.setForeground(QColor("#ffbf69" if action.kind in ("conflict", "deletion", "blocked") else "#70dbb7"))
                 self.table.setItem(i, col, item)
@@ -479,6 +590,11 @@ class Window(QMainWindow):
         self.log(f'Análise: {counts["upload"]} envios, {counts["download"]} recebimentos, {attention} pendências.')
 
     def idle(self):
+        self.active_transfer = None
+        if self.is_online():
+            self.render_online_rows()
+            self.render_offline_rows()
+        self.retry_button.setEnabled(True)
         self.scan_button.setEnabled(True); self.save_button.setEnabled(True)
         self.sync_button.setEnabled(self.is_online() or self.preview_config == self.config and bool(self.actions))
         self.pause_button.setEnabled(self.auto.isChecked())
@@ -488,8 +604,14 @@ class Window(QMainWindow):
         self.auto.setChecked(False)
         self.preview_config = None
         self.status.setText("A operação precisa de atenção")
-        self.subtitle.setText(text)
-        self.issues.setPlainText(text)
+        title, help_text = error_help(text)
+        self.subtitle.setText(title + '. ' + help_text)
+        self.issues.setPlainText(title + '\n' + help_text + '\n\nDetalhe: ' + text)
+        self.retry_context = copy.deepcopy(self.last_request)
+        if self.retry_context and self.retry_context['job'] in ('resolve', 'offline-resolve'):
+            self.retry_context['job'] = 'scan'
+        self.retry_button.setVisible(bool(self.retry_context))
+        self.active_transfer = None
         self.log("Erro: " + text)
 
     def selection_changed(self):
