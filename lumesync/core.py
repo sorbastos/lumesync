@@ -272,7 +272,7 @@ class Engine:
             actions.append(Action(path, kind, reason, l, r))
         return actions
 
-    def apply(self, actions: list[Action], resolutions=None, notify=None, cancelled=None, continue_on_error=False):
+    def apply(self, actions: list[Action], resolutions=None, notify=None, cancelled=None, continue_on_error=False, transfer=None):
         self.errors = []
         resolutions = resolutions or {}
         notify = notify or (lambda message: None)
@@ -328,6 +328,8 @@ class Engine:
                         elif target.exists():
                             raise RuntimeError("Um arquivo local apareceu; destino preservado")
                     check_local()
+                    if transfer:
+                        transfer({"path": action.path, "kind": kind})
                     if kind == "upload":
                         # Snapshot prevents an editor changing content during upload.
                         with tempfile.TemporaryDirectory(prefix="upload-", dir=self.state.directory) as directory:
