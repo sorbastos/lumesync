@@ -14,7 +14,19 @@ Projeto em desenvolvimento, com interface em português e foco no Fedora/KDE.
 
 O acesso online usa cache e ocupa espaço no disco. Os arquivos escolhidos para uso offline ocupam espaço adicional.
 
-## Instalar e abrir
+## Instalar no Fedora
+
+O pacote RPM é preparado para **Fedora 44 x86_64**. Depois de baixar o arquivo:
+
+```bash
+sudo dnf install ./lumesync-0.3.0-1.fc44.x86_64.rpm
+```
+
+Abra **Lume Sync** pelo menu de aplicativos. Para preparar as pastas após conectar a conta, execute `lume-sync-conectar`.
+
+A versão instalada guarda seus dados em `~/.local/share/lumesync/` e não importa automaticamente a conta usada no projeto. Veja [os detalhes do pacote](packaging/README.md) para usar um perfil existente ou construir o RPM.
+
+## Executar pelo código
 
 Você precisa de Python 3.11 ou superior, rclone, FUSE3 e systemd de usuário.
 
@@ -29,7 +41,7 @@ O primeiro comando cria o ambiente virtual `.venv` e instala as dependências ne
 
 Em **Configurações → Aparência**, escolha o tema **Escuro** ou **Claro**. A escolha é salva automaticamente.
 
-Nas próximas vezes, basta executar `bash start.sh`. Ainda não há instalador RPM nem início automático ao entrar no sistema.
+Nas próximas vezes, basta executar `bash start.sh`. O início automático ao entrar no sistema ainda não é configurado.
 
 ## Conectar o Google Drive
 

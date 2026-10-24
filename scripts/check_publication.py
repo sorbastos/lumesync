@@ -30,7 +30,12 @@ def allowed(path):
     if path in ROOT_FILES:return True
     if len(p.parts)==2 and p.parts[0]=='lumesync' and p.suffix=='.py':return True
     if len(p.parts)==2 and p.parts[0]=='tests' and p.name.startswith('test_') and p.suffix=='.py':return True
-    return path in {'scripts/check_publication.py','scripts/install_git_hooks.py'}
+    return path in {
+        'scripts/check_publication.py', 'scripts/install_git_hooks.py',
+        'packaging/build-rpm.sh', 'packaging/build_rpm.py', 'packaging/lumesync.spec.in',
+        'packaging/requirements-fedora44.txt', 'packaging/io.github.sorbastos.LumeSync.desktop',
+        'packaging/io.github.sorbastos.LumeSync.svg', 'packaging/README.md',
+    }
 
 
 def check_blob(path,mode,sha):

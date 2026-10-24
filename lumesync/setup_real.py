@@ -9,7 +9,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from .config import DATA, PROJECT
+from .config import DATA, DEMO
 from .core import DEFAULT_IGNORES
 from .drive import DriveProvider, private_json, API, FOLDER
 
@@ -65,7 +65,7 @@ def prepare(home: Path, data: Path, root_id: str):
         raise ValueError(f'A pasta {folder} já contém arquivos. Escolha outro nome antes de continuar.')
     folder.mkdir(parents=True, exist_ok=True)
     marker.write_text('Pasta de sincronização do Lume Sync.\n')
-    config = {'mode':'drive','local':str(folder),'remote':str(PROJECT/'demo/nuvem'),
+    config = {'mode':'drive','local':str(folder),'remote':str(DEMO/'nuvem'),
               'root_id':root_id,'interval':300,'ignores':DEFAULT_IGNORES}
     add_place(home/'.local/share/user-places.xbel', folder)
     current = data/'config.json'

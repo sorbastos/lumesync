@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
 
 from .themes import DARK_STYLE, load_theme, save_theme, stylesheet
 from . import __version__
-from .config import DATA, load, save, build
+from .config import DATA, DEFAULT_IGNORE, load, save, build
 from .drive import authorize
 from .presentation import STATES, error_help, pin_for_entry, offline_state
 
@@ -278,7 +278,7 @@ class Window(QMainWindow):
         self.save_button.clicked.connect(self.save_settings)
         form.addRow("", self.save_button)
         edit_ignore = QPushButton('Abrir .lumeignore no editor')
-        edit_ignore.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(self.config.get('ignore_file', str(Path(__file__).resolve().parent.parent / '.lumeignore')))))
+        edit_ignore.clicked.connect(self.open_ignore)
         form.addRow('', edit_ignore)
         note = QLabel('No modo sob demanda, use Manter neste computador para escolher cópias offline.\nAs exclusões do .lumeignore são aplicadas à montagem ao reconectar o Drive.')
         note.setWordWrap(True); form.addRow("", note)
@@ -558,6 +558,17 @@ class Window(QMainWindow):
         if QMessageBox.question(self, 'Resolver cópia offline', f'Usar a versão {choice} de {action.path}?') == QMessageBox.StandardButton.Yes:
             self.start('offline-resolve', [action], {action.path: choice})
 
+    def open_ignore(self):
+        from .ignore import DEFAULT_TEXT
+        path = Path(self.config.get('ignore_file', str(DEFAULT_IGNORE)))
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if not path.exists():
+                path.write_text(DEFAULT_TEXT, encoding='utf-8')
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        except OSError as error:
+            QMessageBox.warning(self, 'Arquivo de exclusões', str(error))
+
     def folder_field(self, field):
         widget = QWidget(); line = QHBoxLayout(widget); line.setContentsMargins(0, 0, 0, 0)
         line.addWidget(field); button = QPushButton("Escolher…")
@@ -806,6 +817,7 @@ def main():
     monitor = '--monitor' in sys.argv
     app = QApplication([arg for arg in sys.argv if arg != '--monitor'])
     app.setApplicationName("Lume Sync")
+    app.setDesktopFileName("io.github.sorbastos.LumeSync")
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     window = Window(); window.show()

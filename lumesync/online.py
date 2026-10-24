@@ -12,7 +12,7 @@ import time
 from datetime import datetime,timezone
 from pathlib import Path
 
-from .config import DATA,PROJECT,load,save
+from .config import DATA,DEFAULT_IGNORE,load,save
 from .drive import private_json,DriveProvider,API,FIELDS,FOLDER
 from .ignore import DEFAULT_TEXT,IgnoreRules
 
@@ -78,7 +78,7 @@ class OnlineDrive:
             if parser.get(REMOTE,'root_folder_id',fallback='root')!=self.config.get('root_id','root'):
                 raise RuntimeError('A raiz online mudou. Desmonte e reconfigure o perfil antes de continuar.')
         os.chmod(self.rclone_config,0o600)
-        ignore=Path(self.config.get('ignore_file',str(PROJECT/'.lumeignore')))
+        ignore=Path(self.config.get('ignore_file',str(DEFAULT_IGNORE)))
         rules=IgnoreRules.from_file(ignore) if ignore.exists() else IgnoreRules(DEFAULT_TEXT.splitlines())
         temporary=self.filters.with_suffix('.tmp');temporary.write_text(rules.rclone_filters());os.chmod(temporary,0o600);os.replace(temporary,self.filters)
 

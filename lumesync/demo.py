@@ -1,10 +1,10 @@
 """Cria exemplos somente quando as pastas de demonstração estão vazias."""
 from pathlib import Path
-from .config import PROJECT
+from .config import DEMO
 
 
 def main():
-    local, remote = PROJECT / 'demo/local', PROJECT / 'demo/nuvem'
+    local, remote = DEMO / 'local', DEMO / 'nuvem'
     if any(path.exists() and any(path.iterdir()) for path in (local, remote)):
         print('A demonstração já contém arquivos. Nenhum arquivo foi alterado.')
         return
@@ -16,7 +16,7 @@ def main():
     ]:
         root.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text, encoding='utf-8')
-    print('Exemplos criados. Execute ./start.sh para abrir.')
+    print('Exemplos criados. Abra o Lume Sync para continuar.')
 
 
 if __name__ == '__main__': main()
