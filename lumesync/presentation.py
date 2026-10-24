@@ -8,6 +8,8 @@ STATES = {"equal": "Disponível offline · em dia", "upload": "Aguardando envio"
 
 def error_help(message):
     text = message.casefold()
+    if 'a cópia ainda não está igual' in text:
+        return 'A cópia offline tem pendências', 'Sincronize o arquivo ou resolva o conflito antes de liberar espaço.'
     if any(word in text for word in ('espaço', 'no space left', 'disk full')):
         return 'Sem espaço no computador', 'Libere espaço ou selecione menos itens offline e tente novamente.'
     if any(word in text for word in ('401', 'invalid_grant', 'unauthorized', 'token expir', 'revoked')):
@@ -23,14 +25,17 @@ def error_help(message):
     return 'Não foi possível concluir', 'Confira o detalhe abaixo, corrija a causa e tente novamente.'
 
 
-def pin_for_entry(entry, relative, pins):
+def pin_for_entry(entry, relative, pins, excludes=()):
     label = '/'.join(filter(None, (relative, entry['Name'])))
     for pin in pins:
         if entry.get('ID') == pin['remote_id']:
-            return pin
+            return None if any(pin['path'] == p or pin['path'].startswith(p + '/') for p in excludes) else pin
         parent = pin.get('label', pin['path']).rstrip('/')
         if label.startswith(parent + '/'):
-            return {**pin, 'path': pin['path'] + label[len(parent):]}
+            path = pin['path'] + label[len(parent):]
+            if any(path == p or path.startswith(p + '/') for p in excludes):
+                return None
+            return {**pin, 'path': path}
     return None
 
 

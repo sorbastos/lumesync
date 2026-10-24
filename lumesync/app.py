@@ -36,6 +36,7 @@ class Worker(QThread):
         self.relative = ''
         self.entry = None
         self.retry_paths = None
+        self.release_path = None
 
     def run(self):
         engine = None
@@ -46,13 +47,16 @@ class Worker(QThread):
                 return
             if self.config.get('access_mode') == 'online':
                 from .online import OnlineDrive
-                controller = OnlineDrive(self.config)
+                controller = OnlineDrive(load())
                 offline_actions = None
                 errors = []
                 if self.job == 'sync':
                     controller.start()
                 elif self.job == 'online-reconnect':
                     controller.reconnect()
+                if self.job == 'release-offline':
+                    controller.release_file(self.release_path)
+                    self.message.emit('Cópia offline removida; arquivo mantido no Drive: ' + self.release_path)
                 if self.job == 'pin':
                     path = controller.pin(self.entry, self.relative)
                     self.message.emit('Cópia offline selecionada: ' + path)
@@ -197,6 +201,10 @@ class Window(QMainWindow):
         self.table.itemSelectionChanged.connect(self.selection_changed)
         self.table.cellDoubleClicked.connect(self.open_online_entry)
         resolutions.addWidget(self.local_button); resolutions.addWidget(self.remote_button); resolutions.addStretch()
+        self.release_button = QPushButton('Liberar cópia offline')
+        self.release_button.clicked.connect(lambda: self.release_selected(False))
+        self.release_button.setEnabled(False)
+        resolutions.addWidget(self.release_button)
         file_layout.addLayout(resolutions)
         online_bar = QHBoxLayout()
         self.back_button = QPushButton('Voltar à pasta anterior')
@@ -225,6 +233,9 @@ class Window(QMainWindow):
         buttons.addWidget(refresh)
         for choice, text in [('local', 'Usar cópia local'), ('remote', 'Usar versão da nuvem')]:
             button = QPushButton(text); button.clicked.connect(lambda checked=False, option=choice: self.resolve_offline(option)); buttons.addWidget(button)
+        self.offline_release_button = QPushButton('Liberar cópia offline')
+        self.offline_release_button.clicked.connect(lambda: self.release_selected(True))
+        buttons.addWidget(self.offline_release_button)
         offline_layout.addLayout(buttons)
         self.offline_tab_index = self.tabs.addTab(offline_page, 'Cópias offline')
         self.activity = QPlainTextEdit(); self.activity.setReadOnly(True)
@@ -287,6 +298,7 @@ class Window(QMainWindow):
 
     def configure_access_controls(self):
         online = self.is_online()
+        self.release_button.setVisible(online)
         self.scan_button.setText('Atualizar lista online' if online else 'Analisar pastas')
         self.sync_button.setText('Conectar no Dolphin' if online else 'Sincronizar prévia')
         self.sync_button.setEnabled(online)
@@ -336,7 +348,7 @@ class Window(QMainWindow):
     def render_online_rows(self):
         self.table.setRowCount(len(self.online_entries))
         for row, entry in enumerate(self.online_entries):
-            pin = pin_for_entry(entry, self.current_relative, self.config.get('pins', []))
+            pin = pin_for_entry(entry, self.current_relative, self.config.get('pins', []), self.config.get('offline_excludes', []))
             state = offline_state(pin['path'], self.offline_actions, self.file_errors, self.active_transfer) if pin else 'Na nuvem · sob demanda'
             label = entry['Name'] + (' · ID ' + entry.get('ID', '')[-8:] if entry.get('_duplicate') else '')
             size = 'Pasta' if entry.get('IsDir') else f"{max(0, entry.get('Size', 0))/1024/1024:.1f} MiB"
@@ -361,6 +373,8 @@ class Window(QMainWindow):
     def update_errors(self, errors):
         # A metadata refresh must not erase a failed transfer.
         job = (self.last_request or {}).get('job')
+        if job == 'release-offline':
+            self.file_errors.pop(self.last_request.get('release_path'), None)
         if job in ('sync', 'resolve', 'pin', 'offline-sync', 'offline-resolve'):
             if self.worker and self.worker.retry_paths is not None:
                 for path in self.worker.retry_paths:
@@ -416,7 +430,10 @@ class Window(QMainWindow):
         else:
             self.current_relative = context['relative']
             self.selected_online_entry = context['entry']
-            self.start(context['job'], client=context.get('client'))
+            if context.get('release_path'):
+                self.start(context['job'], release_path=context['release_path'])
+            else:
+                self.start(context['job'], client=context.get('client'))
 
     def open_online_entry(self, row, column):
         if not self.is_online() or not 0 <= row < len(self.online_entries): return
@@ -442,7 +459,8 @@ class Window(QMainWindow):
         if not 0 <= row < len(self.online_entries): return
         self.selected_online_entry = self.online_entries[row]
         rid = self.selected_online_entry.get('ID')
-        if any(pin['remote_id'] == rid for pin in self.config.get('pins', [])):
+        selected_pin = pin_for_entry(self.selected_online_entry, self.current_relative, self.config.get('pins', []), self.config.get('offline_excludes', []))
+        if selected_pin and any(pin['remote_id'] == rid for pin in self.config.get('pins', [])):
             if QMessageBox.question(self, 'Parar de manter offline', 'Parar a sincronização offline deste item? As cópias locais serão preservadas.') == QMessageBox.StandardButton.Yes:
                 self.config['pins'] = [pin for pin in self.config['pins'] if pin['remote_id'] != rid]
                 save(self.config)
@@ -450,6 +468,31 @@ class Window(QMainWindow):
             return
         if QMessageBox.question(self, 'Manter neste computador', 'Baixar este item e manter uma cópia sincronizada na pasta Offline? Pastas incluem todos os seus arquivos não ignorados.') == QMessageBox.StandardButton.Yes:
             self.start('pin')
+
+    def release_selected(self, offline=False):
+        if self.worker and self.worker.isRunning():
+            return
+        if offline:
+            row = self.offline_table.currentRow()
+            if not 0 <= row < len(self.offline_actions):
+                QMessageBox.information(self, 'Selecione um arquivo', 'Selecione um arquivo na lista de cópias offline.')
+                return
+            path = self.offline_actions[row].path
+        else:
+            row = self.table.currentRow()
+            if not 0 <= row < len(self.online_entries):
+                return
+            entry = self.online_entries[row]
+            pin = pin_for_entry(entry, self.current_relative, self.config.get('pins', []), self.config.get('offline_excludes', []))
+            if not pin or entry.get('IsDir'):
+                return
+            path = pin['path']
+        answer = QMessageBox.question(self, 'Liberar cópia offline',
+            f'Remover somente a cópia offline de {path}?\n\n'
+            'O arquivo continuará no Google Drive e não será baixado novamente até você marcar Manter neste computador. '
+            'A remoção só será feita se a cópia estiver igual à nuvem. Feche o arquivo antes de continuar.')
+        if answer == QMessageBox.StandardButton.Yes:
+            self.start('release-offline', release_path=path)
 
     def resolve_offline(self, choice):
         row = self.offline_table.currentRow()
@@ -516,15 +559,18 @@ class Window(QMainWindow):
         except Exception as error:
             self.failure(str(error))
 
-    def start(self, job, actions=None, resolutions=None, client=None, retry_paths=None):
+    def start(self, job, actions=None, resolutions=None, client=None, retry_paths=None, release_path=None):
         if self.worker and self.worker.isRunning(): return
         self.last_request = {'job': job, 'relative': self.current_relative,
-                             'entry': copy.deepcopy(getattr(self, 'selected_online_entry', None)), 'client': client}
+                             'entry': copy.deepcopy(getattr(self, 'selected_online_entry', None)), 'client': client, 'release_path': release_path}
         if retry_paths is not None:
             self.last_request['retry_paths'] = set(retry_paths)
         self.retry_button.setEnabled(False)
         self.worker = Worker(self.config, job, actions, resolutions, client)
         self.worker.retry_paths = retry_paths
+        self.worker.release_path = release_path
+        self.release_button.setEnabled(False)
+        self.offline_release_button.setEnabled(False)
         self.worker.planned.connect(self.receive_plan)
         self.worker.transferring.connect(self.receive_transfer)
         self.worker.relative = self.current_relative
@@ -595,6 +641,7 @@ class Window(QMainWindow):
             self.render_online_rows()
             self.render_offline_rows()
         self.retry_button.setEnabled(True)
+        self.offline_release_button.setEnabled(True)
         self.scan_button.setEnabled(True); self.save_button.setEnabled(True)
         self.sync_button.setEnabled(self.is_online() or self.preview_config == self.config and bool(self.actions))
         self.pause_button.setEnabled(self.auto.isChecked())
@@ -619,6 +666,9 @@ class Window(QMainWindow):
             row = self.table.currentRow()
             valid = 0 <= row < len(self.online_entries)
             self.pin_button.setEnabled(valid and not (self.worker and self.worker.isRunning()))
+            entry = self.online_entries[row] if valid else None
+            selected_pin = pin_for_entry(entry, self.current_relative, self.config.get('pins', []), self.config.get('offline_excludes', [])) if entry else None
+            self.release_button.setEnabled(bool(selected_pin and not entry.get('IsDir') and not (self.worker and self.worker.isRunning())))
             pinned = valid and any(pin['remote_id'] == self.online_entries[row].get('ID') for pin in self.config.get('pins', []))
             self.pin_button.setText('Parar de manter offline' if pinned else 'Manter neste computador')
             return

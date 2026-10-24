@@ -90,3 +90,15 @@ class IgnoreRules:
             out.append(prefix+pattern+'/**')
             if not rule.directory:out.append(prefix+pattern)
         return '\n'.join(out)+'\n'
+
+
+class OfflineExclusions:
+    """Exclusões literais de cópias offline; não afetam a montagem online."""
+    def __init__(self, patterns, paths):
+        self.patterns = patterns
+        self.paths = tuple(paths)
+
+    def matches(self, path, is_dir=False):
+        from .core import ignored
+        return (any(path == p or path.startswith(p + '/') for p in self.paths)
+                or ignored(path, self.patterns, is_dir))

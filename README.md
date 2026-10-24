@@ -8,6 +8,7 @@ Projeto em desenvolvimento, com interface em português e foco no Fedora/KDE.
 
 - Os arquivos do Drive são baixados conforme você os abre.
 - A opção **Manter neste computador** cria uma cópia offline e mantém a sincronização enquanto o app está aberto.
+- **Liberar cópia offline** remove apenas o arquivo do computador e mantém a versão no Drive. O arquivo precisa estar sincronizado; para baixar de novo, use **Manter neste computador**.
 - Use `.lumeignore` para excluir arquivos e pastas da sincronização.
 - Conflitos precisam da sua escolha. As cópias offline não propagam exclusões automaticamente.
 

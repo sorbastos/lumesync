@@ -189,5 +189,34 @@ class StatusAndRetryTests(unittest.TestCase):
         self.assertEqual((remote/'a.txt').read_text(), 'cloud change')
 
 
+    def test_release_copy_requires_confirmation_and_uses_local_only_job(self):
+        from PySide6.QtWidgets import QMessageBox
+        self.window.completed_online(self.result())
+        self.window.table.selectRow(0)
+        self.assertTrue(self.window.release_button.isEnabled())
+        with patch('lumesync.app.QMessageBox.question', return_value=QMessageBox.StandardButton.No), patch.object(self.window, 'start') as start:
+            self.window.release_selected()
+            start.assert_not_called()
+        with patch('lumesync.app.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes), patch.object(self.window, 'start') as start:
+            self.window.release_selected()
+            start.assert_called_once_with('release-offline', release_path='a.txt')
+
+    def test_release_worker_does_not_apply_transfers(self):
+        from unittest.mock import Mock
+        from lumesync.app import Worker
+        controller = Mock(config={**self.config, 'pins': []})
+        controller.entries.return_value = []
+        controller.mounted.return_value = True
+        worker = Worker(self.config, 'release-offline'); worker.release_path = 'a.txt'
+        failures = []; worker.failed.connect(failures.append)
+        with patch('lumesync.online.OnlineDrive', return_value=controller), patch('lumesync.app.build') as build:
+            worker.run()
+            build.assert_not_called()
+        self.assertFalse(failures)
+        controller.release_file.assert_called_once_with('a.txt')
+        controller.start.assert_not_called()
+        controller.pin.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

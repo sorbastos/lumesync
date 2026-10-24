@@ -172,8 +172,55 @@ class OnlineDrive:
         private_json(provider.mapping_file,provider.name_map)
         config=load();pins=config.setdefault('pins',[])
         if not any(pin['remote_id']==rid for pin in pins):pins.append({'remote_id':rid,'path':path,'label':relative})
+        config['offline_excludes'] = [p for p in config.get('offline_excludes', [])
+                                     if not (p == path or p.startswith(path + '/'))]
         config['access_mode']='online';save(config);self.config=config
         return path
+
+    def release_file(self, relative):
+        """Retira uma cópia local em dia, sem escrever ou apagar no Drive."""
+        import copy
+        from .config import build
+        from .core import digest, exclusive, safe_path
+        original = copy.deepcopy(self.config)
+        if not any(relative == p['path'] or relative.startswith(p['path'] + '/')
+                   for p in original.get('pins', [])):
+            raise ValueError('Este arquivo não está selecionado para uso offline.')
+        if any(relative == p or relative.startswith(p + '/') for p in original.get('offline_excludes', [])):
+            raise ValueError('Este arquivo já foi retirado da seleção offline.')
+        engine = build(self.offline_config())
+        try:
+            with exclusive(engine.state.directory):
+                target = safe_path(engine.local, relative)
+                if not target.is_file():
+                    raise ValueError('Selecione um arquivo baixado. A liberação de pastas inteiras ainda não está disponível.')
+                action = next((a for a in engine.plan() if a.path == relative), None)
+                if action is None or action.kind != 'equal' or not action.local or not action.remote:
+                    raise RuntimeError('A cópia ainda não está igual à nuvem. Sincronize ou resolva as pendências antes de liberar espaço.')
+                def identity():
+                    stat = safe_path(engine.local, relative).stat()
+                    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+                before = identity()
+                if digest(target) != action.remote.checksum or identity() != before:
+                    raise RuntimeError('O arquivo mudou durante a verificação. A cópia foi preservada; tente novamente.')
+                updated = copy.deepcopy(original)
+                updated['pins'] = [p for p in original.get('pins', []) if p['path'] != relative]
+                updated['offline_excludes'] = sorted(set(original.get('offline_excludes', [])) | {relative})
+                # Forget the intentional local absence so selecting it again downloads it.
+                engine.state.db.execute('delete from baseline where path = ?', (relative,))
+                engine.state.db.commit()
+                save(updated)
+                try:
+                    if identity() != before:
+                        raise RuntimeError('O arquivo mudou. A cópia local foi preservada.')
+                    target.unlink()
+                except Exception:
+                    save(original)
+                    raise
+                self.config = updated
+                return relative
+        finally:
+            engine.state.close()
 
     def offline_config(self):
         return {**self.config,'access_mode':'offline','local':self.config.get('offline_local',str(self.folder.parent/'Offline')),

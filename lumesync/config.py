@@ -48,6 +48,9 @@ def build(config):
         if config.get('ignore_file'):
             from .ignore import IgnoreRules
             patterns = IgnoreRules.from_file(Path(config['ignore_file']))
+        if config.get('offline_excludes'):
+            from .ignore import OfflineExclusions
+            patterns = OfflineExclusions(patterns, config['offline_excludes'])
         engine = Engine(local, provider, state, patterns)
     except Exception:
         state.close()
