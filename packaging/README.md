@@ -18,7 +18,7 @@ Para usar um rpmbuild extraído localmente, defina `RPMBUILD=/caminho/para/rpmbu
 ## Instalar e remover
 
 ```bash
-sudo dnf install ./dist/lumesync-0.3.1-1.fc44.x86_64.rpm
+sudo dnf install ./dist/lumesync-0.3.2-1.fc44.x86_64.rpm
 sudo dnf remove lumesync
 ```
 

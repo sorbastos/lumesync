@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lume-sync"
-version = "0.3.1"
+version = "0.3.2"
 description = "Sincronização pessoal de Google Drive para Linux"
 requires-python = ">=3.11"
 dynamic = ["dependencies"]

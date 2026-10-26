@@ -19,7 +19,7 @@ O acesso online usa cache e ocupa espaço no disco. Os arquivos escolhidos para 
 O pacote RPM é preparado para **Fedora 44 x86_64**. Depois de baixar o arquivo:
 
 ```bash
-sudo dnf install ./lumesync-0.3.1-1.fc44.x86_64.rpm
+sudo dnf install ./lumesync-0.3.2-1.fc44.x86_64.rpm
 ```
 
 Abra **Lume Sync** pelo menu de aplicativos. A pasta do Drive é preparada automaticamente após conectar a conta.
@@ -51,6 +51,6 @@ Nas próximas vezes, basta executar `bash start.sh`. O início automático ao en
 
 O app prepara as pastas e os atalhos no Dolphin automaticamente. Você escolhe depois o que quer manter offline. Cada pessoa usa suas próprias credenciais.
 
-Fechar a janela mantém o app em segundo plano. Abra-o pelo ícone próximo ao relógio; para encerrar, use **Aplicativo → Sair**. Sem bandeja disponível, a janela fica minimizada.
+Fechar a janela mantém o app em segundo plano. Clicar novamente no ícone do aplicativo reabre a janela existente, sem iniciar outra cópia. Abra-o pelo ícone próximo ao relógio; para encerrar, use **Aplicativo → Sair**. Sem bandeja disponível, a janela fica minimizada.
 
 O projeto ainda não tem licença de redistribuição definida.

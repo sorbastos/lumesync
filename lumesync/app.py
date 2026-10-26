@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
     QFormLayout, QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QFileDialog,
     QMessageBox, QCheckBox, QSystemTrayIcon, QMenu, QAbstractItemView, QScrollArea)
 
+from .instance import SingleInstance
 from .folders import drive_folder
 from .themes import DARK_STYLE, load_theme, save_theme, stylesheet
 from . import __version__
@@ -970,12 +971,29 @@ def main():
     app.setDesktopFileName("io.github.sorbastos.LumeSync")
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
-    window = Window(); window.show()
+    try:
+        instance = SingleInstance(DATA, parent=app)
+        if not instance.start():
+            return 0
+    except (OSError, RuntimeError) as error:
+        QMessageBox.warning(None, 'Lume Sync', str(error))
+        return 1
+    app.aboutToQuit.connect(instance.close)
+    try:
+        window = Window()
+    except Exception:
+        instance.close()
+        raise
+    instance.activation_requested.connect(window.restore_window)
+    window.show()
     if window.is_online():
         QTimer.singleShot(0, lambda: window.start('sync'))
     elif monitor:
         QTimer.singleShot(0, lambda: window.auto.setChecked(True))
-    sys.exit(app.exec())
+    try:
+        return app.exec()
+    finally:
+        instance.close()
 
 
-if __name__ == "__main__": main()
+if __name__ == "__main__": sys.exit(main())

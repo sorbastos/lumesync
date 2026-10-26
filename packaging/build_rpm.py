@@ -34,7 +34,7 @@ def runtime_packages(venv):
     missing = []
     site = venv/'lib/python3.14/site-packages'
     qt = site/'PySide6/Qt'
-    libraries = [site/'PySide6'/name for name in ('QtCore.abi3.so', 'QtGui.abi3.so', 'QtWidgets.abi3.so')]
+    libraries = [site/'PySide6'/name for name in ('QtCore.abi3.so', 'QtGui.abi3.so', 'QtWidgets.abi3.so', 'QtNetwork.abi3.so')]
     libraries += list((site/'shiboken6').glob('*.so*'))
     for directory, names in {
         'platforms': ['libqxcb.so', 'libqwayland.so', 'libqminimal.so', 'libqoffscreen.so'],
@@ -64,7 +64,7 @@ def runtime_packages(venv):
                 ownership_cache[path] = capture(['rpm', '-qf', '--qf', '%{NAME}\n', str(path)])
             owner = ownership_cache[path]
             owners.update(owner.splitlines())
-    required = {'QtCore.abi3.so', 'QtGui.abi3.so', 'QtWidgets.abi3.so',
+    required = {'QtCore.abi3.so', 'QtGui.abi3.so', 'QtWidgets.abi3.so', 'QtNetwork.abi3.so',
                 'libQt6Core.so.6', 'libQt6Gui.so.6', 'libQt6Widgets.so.6', 'libqxcb.so', 'libqwayland.so'}
     failures = [entry for entry in missing if entry[0] in required]
     if failures:
