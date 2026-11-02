@@ -114,6 +114,36 @@ class BackgroundAndSetupTests(unittest.TestCase):
             setup.assert_called_once_with(config=self.config)
         self.assertTrue(results[0]['setup'])
 
+    def test_online_interval_pause_and_resume_are_consistent(self):
+        self.window.config.update(access_mode='online',interval=180)
+        self.window.configure_access_controls()
+        self.assertEqual(self.window.timer.interval(),180000)
+        self.window.pause()
+        self.assertFalse(self.window.timer.isActive())
+        with patch.object(self.window,'start'):
+            self.window.resume_offline()
+        self.assertTrue(self.window.timer.isActive())
+        self.assertEqual(self.window.timer.interval(),180000)
+
+    def test_online_warnings_are_visible_and_counted(self):
+        self.window.config['access_mode']='online'
+        self.window.completed_online({'config':self.window.config,'relative':'','entries':[],
+                                      'mounted':False,'warnings':['Documento somente na nuvem'],
+                                      'offline_actions':[],'errors':[]})
+        self.assertIn('Documento somente na nuvem',self.window.issues.toPlainText())
+        self.assertEqual(self.window.cards['attention'].text(),'1')
+
+    def test_success_after_failure_resumes_timer_but_explicit_pause_is_respected(self):
+        self.window.config['access_mode']='online'
+        result={'config':self.window.config,'relative':'','entries':[],'mounted':False,'errors':[]}
+        self.window.failure('invalid_grant')
+        self.assertFalse(self.window.timer.isActive())
+        self.window.completed_online(result)
+        self.assertTrue(self.window.timer.isActive())
+        self.window.pause()
+        self.window.completed_online(result)
+        self.assertFalse(self.window.timer.isActive())
+
 
 class SetupFolderTests(unittest.TestCase):
     def test_setup_respects_specific_folder(self):

@@ -77,6 +77,7 @@ def runtime_packages(venv):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT/'dist')
+    parser.add_argument('--sign-key', help='Identidade GPG existente para assinar o RPM com rpmsign')
     args = parser.parse_args()
     if sys.prefix == sys.base_prefix:
         parser.error('Use bash packaging/build-rpm.sh dentro do projeto com .venv preparada.')
@@ -93,7 +94,7 @@ def main():
         work = Path(directory); wheels = work/'wheels'; wheels.mkdir()
         python = Path(sys.executable)
         pip = [python, '-I', '-m', 'pip', '--isolated', '--require-virtualenv']
-        run([*pip, 'download', '--only-binary=:all:', '--no-deps', '-r', ROOT/'packaging/requirements-fedora44.txt', '--dest', wheels], env=env)
+        run([*pip, 'download', '--require-hashes', '--only-binary=:all:', '--no-deps', '-r', ROOT/'packaging/requirements-fedora44.txt', '--dest', wheels], env=env)
         run([*pip, 'wheel', '--no-deps', '--wheel-dir', wheels, ROOT], env=env)
         app_wheels = list(wheels.glob('lume_sync-*.whl'))
         if len(app_wheels) != 1:
@@ -161,6 +162,8 @@ def main():
         if len(built) != 1:
             raise RuntimeError('Quantidade inesperada de RPMs produzidos.')
         result = output/built[0].name; shutil.copyfile(built[0], result)
+        if args.sign_key:
+            run(['rpmsign','--define','_gpg_name '+args.sign_key,'--addsign',result], env=env)
         (output/(result.name + '.sha256')).write_text(hashlib.sha256(result.read_bytes()).hexdigest() + '  ' + result.name + '\n')
         (output/'build-report.json').write_text(json.dumps({'package': result.name, 'python': platform.python_version(),
               'version': version, 'native_packages': requires, 'optional_missing_libraries': missing,

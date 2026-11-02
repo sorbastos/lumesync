@@ -86,6 +86,7 @@ def authorize(client_path: Path, token_path: Path, notify=lambda text: None):
             raise RuntimeError(f"Google recusou a troca OAuth (HTTP {response.status_code})")
         token = response.json()
         token.update(client)
+        token['authorization_id'] = secrets.token_hex(16)
         token["expires_at"] = time.time() + token.get("expires_in", 3600)
         private_json(token_path, token)
 
@@ -119,7 +120,15 @@ class DriveProvider:
                 "client_id": self.token["client_id"], "client_secret": self.token.get("client_secret", ""),
                 "refresh_token": self.token.get("refresh_token", ""), "grant_type": "refresh_token"}, timeout=30)
             if response.status_code != 200:
-                raise RuntimeError("Sessão Google expirada; conecte novamente")
+                try:
+                    oauth_error = response.json().get('error')
+                except ValueError:
+                    oauth_error = None
+                if response.status_code in (400, 401) and oauth_error in ('invalid_grant', 'invalid_client'):
+                    raise RuntimeError('Sessão Google expirada; conecte novamente')
+                if response.status_code == 429:
+                    raise RuntimeError('Google Drive HTTP 429; aguarde antes de tentar novamente')
+                raise RuntimeError(f'Falha temporária ao renovar acesso Google (HTTP {response.status_code}); tente novamente')
             self.token.update(response.json())
             self.token["expires_at"] = time.time() + self.token.get("expires_in", 3600)
             private_json(self.token_path, self.token)

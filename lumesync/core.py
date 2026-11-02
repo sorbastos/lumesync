@@ -12,6 +12,9 @@ from dataclasses import dataclass, asdict
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
+# Process-local only; every transfer still hashes the destination/source before replacing bytes.
+_SCAN_CACHES = {}
+
 DEFAULT_IGNORES = [".venv", "venv", "ambiente", "__pycache__", "*.pyc", ".git", "node_modules", ".Trash-*", ".lume-*", "*.insyncdl"]
 
 
@@ -118,7 +121,7 @@ def selected_path(path, includes, is_dir=False):
                is_dir and chosen.startswith(path + '/') for chosen in includes)
 
 
-def scan_local(root: Path, patterns: list[str], includes=None) -> dict[str, Item]:
+def scan_local(root: Path, patterns: list[str], includes=None, cache=None) -> dict[str, Item]:
     if root.is_symlink():
         raise ValueError("Raiz com link simbólico não permitida")
     result: dict[str, Item] = {}
@@ -136,10 +139,14 @@ def scan_local(root: Path, patterns: list[str], includes=None) -> dict[str, Item
             if not path.is_file():
                 continue
             before = path.stat()
-            checksum = digest(path)
+            signature = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+            cached = cache.get(rel) if cache is not None else None
+            checksum = cached[1] if cached and cached[0] == signature else digest(path)
             after = path.stat()
             if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
                 raise RuntimeError(f"Arquivo em uso durante leitura: {rel}")
+            if cache is not None and (rel in cache or len(cache) < 20000):
+                cache[rel] = (signature, checksum)
             result[rel] = Item(rel, checksum, after.st_size)
     return result
 
@@ -189,6 +196,7 @@ class State:
 
     def log(self, path: str, kind: str, message: str):
         self.db.execute("insert into events(timestamp,path,kind,message) values(?,?,?,?)", (time.time(), path, kind, message))
+        self.db.execute("delete from events where id <= (select coalesce(max(id),0)-5000 from events)")
         self.db.commit()
 
     def close(self):
@@ -218,6 +226,12 @@ class Engine:
         self.local.mkdir(parents=True, exist_ok=True)
         self.provider, self.state = provider, state
         self.include_paths = getattr(provider, 'include_paths', None)
+        cache_key = str(self.local.resolve())
+        if len(_SCAN_CACHES) >= 4 and cache_key not in _SCAN_CACHES:
+            _SCAN_CACHES.clear()
+        self.checksum_cache = _SCAN_CACHES.setdefault(cache_key, {})
+        if len(self.checksum_cache) > 20000:
+            self.checksum_cache.clear()
         self.patterns = DEFAULT_IGNORES if patterns is None else patterns
         if isinstance(provider, LocalProvider):
             a, b = self.local.resolve(), provider.root.resolve()
@@ -227,7 +241,7 @@ class Engine:
             raise ValueError("Os dados do app devem ficar fora da pasta sincronizada")
 
     def plan(self) -> list[Action]:
-        local = scan_local(self.local, self.patterns, self.include_paths)
+        local = scan_local(self.local, self.patterns, self.include_paths, self.checksum_cache)
         remote = self.provider.scan(self.patterns)
         baseline = self.state.baseline()
         actions = []
@@ -280,10 +294,14 @@ class Engine:
         with exclusive(self.state.directory):
             fresh = {a.path: a for a in self.plan()}
             import shutil
-            required = sum(max(0, (a.remote.size if a.remote else 0) - (a.local.size if a.local else 0))
-                           for a in actions if a.kind == 'download' or resolutions.get(a.path) == 'remote')
-            if required and required + 256 * 1024 * 1024 > shutil.disk_usage(self.local).free:
-                raise RuntimeError(f'Espaço insuficiente para as cópias selecionadas ({required / 1024**3:.2f} GiB adicionais). Selecione menos itens offline.')
+            downloads = [a for a in actions if a.remote and
+                         (a.kind == 'download' or resolutions.get(a.path) == 'remote')]
+            growth = peak = 0
+            for action in downloads:
+                peak = max(peak, growth + action.remote.size)
+                growth += max(0, action.remote.size - (action.local.size if action.local else 0))
+            if downloads and peak + 256 * 1024 * 1024 > shutil.disk_usage(self.local).free:
+                raise RuntimeError('Espaço insuficiente para download e cópia temporária. Libere espaço antes de sincronizar.')
             for action in actions:
                 if cancelled():
                     notify("Pausado entre transferências")
@@ -331,6 +349,9 @@ class Engine:
                     if transfer:
                         transfer({"path": action.path, "kind": kind})
                     if kind == "upload":
+                        # Snapshot lives on the profile volume, which may differ from the local folder.
+                        if action.local.size + 256 * 1024 * 1024 > shutil.disk_usage(self.state.directory).free:
+                            raise RuntimeError('Espaço insuficiente para a cópia temporária de upload.')
                         # Snapshot prevents an editor changing content during upload.
                         with tempfile.TemporaryDirectory(prefix="upload-", dir=self.state.directory) as directory:
                             snapshot = Path(directory) / "content"
@@ -340,6 +361,11 @@ class Engine:
                             self.provider.upload(snapshot, action.path, action.remote)
                         checksum = action.local.checksum
                     else:
+                        volume = target.parent
+                        while not volume.exists():
+                            volume = volume.parent
+                        if action.remote.size + 256 * 1024 * 1024 > shutil.disk_usage(volume).free:
+                            raise RuntimeError('Espaço insuficiente para download e cópia temporária neste volume.')
                         atomic_download(target, action.remote.checksum,
                                         lambda temp: self.provider.download(action.remote, temp), check_local)
                         checksum = action.remote.checksum

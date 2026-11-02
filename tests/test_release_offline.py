@@ -37,7 +37,7 @@ class ReleaseOfflineTests(unittest.TestCase):
     def save(self, config):
         self.saved = copy.deepcopy(config)
 
-    def build(self, config):
+    def build(self, config, **kwargs):
         provider = LocalProvider(self.remote)
         provider.include_paths = config['include_paths']
         patterns = OfflineExclusions([], config.get('offline_excludes', []))

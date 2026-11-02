@@ -204,7 +204,7 @@ class StatusAndRetryTests(unittest.TestCase):
     def test_release_worker_does_not_apply_transfers(self):
         from unittest.mock import Mock
         from lumesync.app import Worker
-        controller = Mock(config={**self.config, 'pins': []})
+        controller = Mock(config={**self.config, 'pins': []}, pin_warnings=[])
         controller.entries.return_value = []
         controller.mounted.return_value = True
         worker = Worker(self.config, 'release-offline'); worker.release_path = 'a.txt'

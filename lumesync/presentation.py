@@ -14,7 +14,7 @@ def error_help(message):
         return 'A cópia offline tem pendências', 'Sincronize o arquivo ou resolva o conflito antes de liberar espaço.'
     if any(word in text for word in ('espaço', 'no space left', 'disk full')):
         return 'Sem espaço no computador', 'Libere espaço ou selecione menos itens offline e tente novamente.'
-    if any(word in text for word in ('401', 'invalid_grant', 'unauthorized', 'token expir', 'revoked')):
+    if any(word in text for word in ('401', 'invalid_grant', 'unauthorized', 'token expir', 'revoked', 'sessão google expirada')):
         return 'A conta precisa de autorização', 'Conecte sua conta novamente em Configurações.'
     if any(word in text for word in ('403', 'permission denied', 'permissão', 'forbidden')):
         return 'Acesso não permitido', 'Confira sua permissão no Drive e na pasta local antes de tentar novamente.'

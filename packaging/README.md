@@ -18,7 +18,7 @@ Para usar um rpmbuild extraído localmente, defina `RPMBUILD=/caminho/para/rpmbu
 ## Instalar e remover
 
 ```bash
-sudo dnf install ./dist/lumesync-0.3.2-1.fc44.x86_64.rpm
+sudo dnf install ./dist/lumesync-0.4.1-1.fc44.x86_64.rpm
 sudo dnf remove lumesync
 ```
 
@@ -39,3 +39,11 @@ LUMESYNC_DATA_DIR="$PWD/runtime" lume-sync
 ```
 
 O pacote contém licenças das dependências nos respectivos diretórios `*.dist-info`. A licença de redistribuição do aplicativo ainda não foi definida. Não há configuração de início automático nem migração de credenciais feita pelo instalador.
+
+## Verificação e assinatura
+
+Os wheels do RPM usam versões e hashes SHA-256 fixados. O arquivo `.sha256` ao lado do RPM permite conferir o download. Para assinar com uma chave GPG sua já configurada, use `bash packaging/build-rpm.sh --sign-key IDENTIDADE`. Sem essa opção o pacote continua local e sem assinatura.
+
+Os testes comuns usam `QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests`. O teste de ciclo real do serviço é opcional: `LUMESYNC_INTEGRATION=1 QT_QPA_PLATFORM=offscreen .venv/bin/python -m unittest discover -s tests -p test_service_integration.py`. Ele usa uma unidade temporária e sleep; não monta pastas nem acessa o Google. Testes de reinício completo do KDE, suspensão e interrupção de energia devem ser feitos em uma VM descartável antes de uma distribuição ampla.
+
+A migração do histórico copia somente o banco identificado pela credencial anterior conhecida e preserva o original. Bancos antigos de autorizações já perdidas não são mesclados por suposição. A recuperação da configuração oferece escolher um backup e preserva o arquivo danificado.

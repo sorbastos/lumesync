@@ -1,0 +1,23 @@
+name: Tests
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  fedora:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: System dependencies
+        run: dnf install -y git python3 python3-pip rclone fuse3 util-linux libxkbcommon libGL libEGL dbus-libs fontconfig
+      - uses: actions/checkout@v4
+      - name: Isolated dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -I -m pip install --require-hashes -r packaging/requirements-fedora44.txt
+          .venv/bin/python -I -m pip install --no-deps -e .
+      - name: Regression tests
+        run: .venv/bin/python -m unittest discover -s tests -v
+      - name: Publication guard
+        run: .venv/bin/python -I scripts/check_publication.py --staged

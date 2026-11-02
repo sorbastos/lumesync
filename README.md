@@ -12,6 +12,8 @@ Projeto em desenvolvimento, com interface em português e foco no Fedora/KDE.
 - Use `.lumeignore` para excluir arquivos e pastas da sincronização.
 - Conflitos precisam da sua escolha. As cópias offline não propagam exclusões automaticamente.
 
+**Pausar cópias offline**, no ícone próximo ao relógio, pausa apenas a pasta Offline. O acesso pelo Dolphin continua independente. Use **Retomar cópias offline** para continuar.
+
 O acesso online usa cache e ocupa espaço no disco. Os arquivos escolhidos para uso offline ocupam espaço adicional.
 
 ## Instalar no Fedora
@@ -19,7 +21,7 @@ O acesso online usa cache e ocupa espaço no disco. Os arquivos escolhidos para 
 O pacote RPM é preparado para **Fedora 44 x86_64**. Depois de baixar o arquivo:
 
 ```bash
-sudo dnf install ./lumesync-0.3.2-1.fc44.x86_64.rpm
+sudo dnf install ./lumesync-0.4.1-1.fc44.x86_64.rpm
 ```
 
 Abra **Lume Sync** pelo menu de aplicativos. A pasta do Drive é preparada automaticamente após conectar a conta.
@@ -49,7 +51,7 @@ Nas próximas vezes, basta executar `bash start.sh`. O início automático ao en
 2. Em **Configurações**, escolha **Todo o Meu Drive** ou **Uma pasta específica**. Para uma pasta específica, cole o link completo dela.
 3. Clique em **Conectar Google Drive**, selecione o JSON da credencial e autorize sua conta no navegador.
 
-O app prepara as pastas e os atalhos no Dolphin automaticamente. Você escolhe depois o que quer manter offline. Cada pessoa usa suas próprias credenciais.
+O app prepara as pastas e os atalhos no Dolphin automaticamente. Você escolhe depois o que quer manter offline. Cada pessoa usa suas próprias credenciais. Projetos OAuth em teste exigem nova autorização após sete dias; em produção, reconecte a conta para renovar essa autorização.
 
 Fechar a janela mantém o app em segundo plano. Clicar novamente no ícone do aplicativo reabre a janela existente, sem iniciar outra cópia. Abra-o pelo ícone próximo ao relógio; para encerrar, use **Aplicativo → Sair**. Sem bandeja disponível, a janela fica minimizada.
 

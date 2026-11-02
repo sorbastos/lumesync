@@ -45,7 +45,10 @@ class Worker(QThread):
         engine = None
         try:
             if self.job == "auth":
-                authorize(Path(self.client), DATA / "google-token.json", self.message.emit)
+                from .online import OnlineDrive
+                controller = OnlineDrive(self.config)
+                authorize(Path(self.client), controller.pending_auth, self.message.emit)
+                controller.complete_authorization()
                 self.completed.emit({"authorized": True})
                 return
             if self.job == 'setup-drive':
@@ -69,6 +72,7 @@ class Worker(QThread):
                     path = controller.pin(self.entry, self.relative)
                     self.message.emit('Cópia offline selecionada: ' + path)
                 if controller.config.get('pins'):
+                    controller.reconcile_pins()
                     engine = build(controller.offline_config())
                     engine.provider.cancelled = self.stop_event.is_set
                     engine.provider.progress = self.message.emit
@@ -80,12 +84,13 @@ class Worker(QThread):
                         engine.apply(plan, self.resolutions, self.message.emit, self.stop_event.is_set,
                                      continue_on_error=True, transfer=self.transferring.emit)
                         errors = engine.errors
-                    offline_actions = engine.plan()
+                    offline_actions = engine.plan() if self.job in ('pin', 'offline-sync', 'offline-resolve') else plan
                 directory = self.relative.rpartition('/')[0] if self.job == 'pin' else self.relative
                 entries = controller.entries(directory)
                 self.completed.emit({'online': True, 'entries': entries, 'relative': directory,
                                      'mounted': controller.mounted(), 'config': controller.config,
-                                     'offline_actions': offline_actions, 'errors': errors})
+                                     'offline_actions': offline_actions, 'errors': errors,
+                                     'warnings': controller.pin_warnings + (getattr(engine.provider, 'warnings', []) if engine else [])})
                 return
             engine = build(self.config)
             engine.provider.cancelled = self.stop_event.is_set
@@ -119,6 +124,7 @@ class Window(QMainWindow):
         self.worker = None
         self.force_exit = False
         self.pending_setup = False
+        self.offline_paused = False
         self.actions = []
         self.current_relative = ''
         self.online_entries = []
@@ -318,7 +324,8 @@ class Window(QMainWindow):
         self.tray.setToolTip('Lume Sync · em segundo plano')
         menu = QMenu(self)
         menu.addAction('Abrir Lume Sync', self.restore_window)
-        menu.addAction('Pausar sincronização', self.pause)
+        menu.addAction('Pausar cópias offline', self.pause)
+        menu.addAction('Retomar cópias offline', self.resume_offline)
         menu.addAction('Sair', self.request_quit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(lambda reason: self.restore_window() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
@@ -457,12 +464,15 @@ class Window(QMainWindow):
             self.card_titles['upload'].setText('Cache temporário · alvo')
             self.card_titles['download'].setText('Cópias offline selecionadas')
             self.table.setToolTip('Na nuvem: acesso sob demanda, podendo usar cache temporário. Offline: cópia sincronizada na pasta Offline.')
-            self.timer.start(60000)
+            if not self.offline_paused:
+                self.timer.start(max(15, self.config.get('interval',60))*1000)
             ignore = Path(self.config.get('ignore_file', ''))
             if ignore.is_file(): self.ignores.setPlainText(ignore.read_text())
 
     def completed_online(self, result):
         self.config = result['config']
+        if not self.offline_paused:
+            self.timer.start(max(15,self.config.get('interval',60))*1000)
         self.current_relative = result['relative']
         self.online_entries = result['entries']
         self.cards['equal'].setText('Ativo' if result['mounted'] else 'Desligado')
@@ -476,9 +486,10 @@ class Window(QMainWindow):
         self.update_errors(errors)
         self.render_online_rows()
         self.render_offline_rows()
-        attention = sum(a.kind in ('conflict', 'deletion', 'blocked') for a in self.offline_actions) + len(self.file_errors)
+        warnings = result.get('warnings', [])
+        attention = sum(a.kind in ('conflict', 'deletion', 'blocked') for a in self.offline_actions) + len(self.file_errors) + len(warnings)
         self.cards['attention'].setText(str(attention))
-        self.show_errors()
+        self.show_errors(warnings)
         self.status.setText('Seu Drive, sem cópia integral no computador' if result['mounted'] else 'Conecte o Drive para acessar pelo Dolphin')
         self.subtitle.setText(f"{len(self.online_entries)} itens nesta pasta · /{self.current_relative} · Offline em {self.config.get('offline_local', '')}")
         self.back_button.setEnabled(bool(self.current_relative))
@@ -844,6 +855,7 @@ class Window(QMainWindow):
 
     def failure(self, text):
         self.auto.setChecked(False)
+        self.timer.stop()
         self.preview_config = None
         self.status.setText("A operação precisa de atenção")
         title, help_text = error_help(text)
@@ -891,6 +903,15 @@ class Window(QMainWindow):
         else:
             self.timer.stop()
 
+    def resume_offline(self):
+        self.offline_paused = False
+        if self.is_online():
+            self.timer.start(max(15, self.config.get('interval',60))*1000)
+            self.tick()
+            self.log('Cópias offline retomadas. O acesso pelo Dolphin é independente.')
+        else:
+            self.auto.setChecked(True)
+
     def tick(self):
         if self.is_online():
             if self.config.get('pins'): self.start('offline-sync')
@@ -898,13 +919,14 @@ class Window(QMainWindow):
             self.start('sync')
 
     def pause(self):
+        self.offline_paused = True
         self.auto.setChecked(False); self.timer.stop()
         if self.worker and self.worker.isRunning():
             self.worker.stop_event.set()
             self.log("Pausa solicitada; a transferência atual será concluída.")
         else:
             self.pause_button.setEnabled(False)
-            self.log("Sincronização periódica pausada.")
+            self.log('Cópias offline pausadas. O acesso e as transferências pelo Dolphin continuam ativos.' if self.is_online() else 'Sincronização periódica pausada.')
 
     def connect_google(self):
         if self.worker and self.worker.isRunning(): return
@@ -981,9 +1003,20 @@ def main():
     app.aboutToQuit.connect(instance.close)
     try:
         window = Window()
-    except Exception:
+    except (RuntimeError, ValueError, OSError) as error:
         instance.close()
-        raise
+        answer = QMessageBox.question(None, 'Não foi possível abrir o Lume Sync',
+                                      str(error)+'\n\nDeseja escolher um backup de configuração?')
+        if answer == QMessageBox.StandardButton.Yes:
+            path, _ = QFileDialog.getOpenFileName(None, 'Restaurar configuração', str(DATA), 'JSON (*.json)')
+            if path:
+                try:
+                    from .config import restore_backup
+                    restore_backup(path)
+                    QMessageBox.information(None, 'Configuração recuperada', 'Abra o Lume Sync novamente.')
+                except (OSError, ValueError) as restore_error:
+                    QMessageBox.warning(None, 'Backup não restaurado', str(restore_error))
+        return 1
     instance.activation_requested.connect(window.restore_window)
     window.show()
     if window.is_online():

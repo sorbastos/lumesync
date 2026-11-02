@@ -33,16 +33,31 @@ DEFAULT_IGNORE = PROJECT / '.lumeignore' if SOURCE_CHECKOUT else DATA / '.lumeig
 
 def load():
     if CONFIG.exists():
-        return json.loads(CONFIG.read_text())
+        try:
+            value = json.loads(CONFIG.read_text())
+            if not isinstance(value, dict) or value.get('mode') not in ('demo', 'drive') or not value.get('local'):
+                raise ValueError('Configuração incompleta')
+            value.setdefault('ignores', DEFAULT_IGNORES)
+            return value
+        except (ValueError, OSError) as error:
+            raise RuntimeError('Não foi possível ler a configuração. O arquivo foi preservado. Restaure um backup pela opção de recuperação.') from error
     return {"mode": "demo", "local": str(DEMO / "local"), "remote": str(DEMO / "nuvem"),
             "root_id": "root", "interval": 60, "ignores": DEFAULT_IGNORES}
 
 
 def save(config):
+    if CONFIG.exists():
+        try:
+            previous = json.loads(CONFIG.read_text())
+            if isinstance(previous, dict) and previous.get('mode') in ('demo','drive') and previous.get('local'):
+                private_json(DATA/'config-last-good.json', previous)
+        except (ValueError, OSError):
+            pass
     private_json(CONFIG, config)
 
 
-def build(config):
+def build(config, data=None):
+    data = DATA if data is None else Path(data)
     if config.get('access_mode') == 'online':
         raise ValueError('O modo sob demanda não faz cópia integral. Use a interface para marcar itens offline.')
     local = Path(config["local"]).expanduser().absolute()
@@ -50,20 +65,22 @@ def build(config):
         raise ValueError("Escolha uma pasta separada da usada pelo Insync")
     if config["mode"] == "demo":
         remote = Path(config["remote"]).expanduser().absolute()
-        if DATA.resolve().is_relative_to(remote.resolve()):
+        if data.resolve().is_relative_to(remote.resolve()):
             raise ValueError("A pasta de nuvem de teste não pode conter os dados do app")
         provider = LocalProvider(remote)
         identity = "demo|" + str(local.resolve()) + "|" + str(remote.resolve())
     else:
-        provider = DriveProvider(DATA / "google-token.json", config.get("root_id", "root"))
+        provider = DriveProvider(data / "google-token.json", config.get("root_id", "root"))
         provider.include_paths = config.get('include_paths')
         provider.inventory_enabled = provider.include_paths is None
-        # OAuth client + remote root + local path identify this baseline.
-        identity = "drive|" + str(local.resolve()) + "|" + provider.root_id + "|" + provider.token.get("refresh_token", "")
+        # Account root is stable across explicit OAuth reauthorization. Never use a credential as identity.
+        identity = "drive-v2|" + str(local.resolve()) + "|" + provider.root_id + "|" + provider.token.get('client_id', '')
     import hashlib
     # No credentials are persisted in the baseline identity.
     key = hashlib.sha256(identity.encode()).hexdigest()
-    state = State(DATA / "profiles" / key)
+    if config['mode'] == 'drive':
+        migrate_legacy_state(data, local, provider.root_id, provider.token, key)
+    state = State(data / "profiles" / key)
     try:
         state.bind(key)
         patterns = config.get('ignores', DEFAULT_IGNORES)
@@ -78,3 +95,47 @@ def build(config):
         state.close()
         raise
     return engine
+
+
+def migrate_legacy_state(data, local, root_id, token, key):
+    """Copy only a positively identified legacy DB; preserve the original for rollback."""
+    import hashlib
+    import sqlite3
+    from .core import exclusive
+    old_identity = 'drive|' + str(local.resolve()) + '|' + root_id + '|' + token.get('refresh_token', '')
+    old_key = hashlib.sha256(old_identity.encode()).hexdigest()
+    source = data/'profiles'/old_key
+    target = data/'profiles'/key
+    if not (source/'state.sqlite3').is_file() or (target/'state.sqlite3').exists():
+        return
+    with exclusive(source):
+        with exclusive(target):
+            if (target/'state.sqlite3').exists():
+                return
+            origin = sqlite3.connect(source/'state.sqlite3')
+            temporary = target/'migration.sqlite3'
+            destination = sqlite3.connect(temporary)
+            try:
+                origin.backup(destination)
+                destination.execute("update metadata set value=? where key='identity'", (key,))
+                destination.commit()
+            finally:
+                destination.close()
+                origin.close()
+            temporary.chmod(0o600)
+            os.replace(temporary, target/'state.sqlite3')
+
+
+def restore_backup(path):
+    import time
+    candidate = Path(path)
+    value = json.loads(candidate.read_text())
+    if not isinstance(value, dict) or value.get('mode') not in ('demo','drive') or not value.get('local'):
+        raise ValueError('Backup inválido. A configuração atual foi preservada.')
+    value.setdefault('ignores', DEFAULT_IGNORES)
+    if CONFIG.exists():
+        backup = DATA/('config-damaged-'+str(time.time_ns())+'.json')
+        backup.write_bytes(CONFIG.read_bytes())
+        backup.chmod(0o600)
+    save(value)
+    return value
