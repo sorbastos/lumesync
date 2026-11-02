@@ -17,6 +17,19 @@ class GuiTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         cls.app.setStyleSheet(STYLE)
 
+    def setUp(self):
+        # Every test uses a disposable profile, never the developer's account/settings.
+        profile = tempfile.TemporaryDirectory(prefix='lume-gui-test-')
+        self.addCleanup(profile.cleanup)
+        self.profile = Path(profile.name)
+        data_patch = patch('lumesync.app.DATA', self.profile)
+        data_patch.start()
+        self.addCleanup(data_patch.stop)
+        dialog_patch = patch('lumesync.app.QFileDialog.getOpenFileName',
+                             side_effect=AssertionError('Unexpected credential dialog in an isolated GUI test'))
+        dialog_patch.start()
+        self.addCleanup(dialog_patch.stop)
+
     def test_preview_then_sync_preserves_conflict(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); local = root/'local'; remote = root/'remote'
@@ -53,6 +66,8 @@ class GuiTests(unittest.TestCase):
 
 
     def test_online_ui_shows_pin_and_never_starts_bulk_sync(self):
+        # Only file existence is needed here; worker/network calls are mocked below.
+        (self.profile/'google-token.json').write_text('{}')
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
             config={'mode':'drive','access_mode':'online','local':str(root/'mount'),'offline_local':str(root/'Offline'),
@@ -70,6 +85,19 @@ class GuiTests(unittest.TestCase):
                         window.sync_preview()
                         start.assert_called_once_with('sync')
                 finally:window.close();self.app.processEvents()
+
+    def test_online_without_credentials_requests_connection_instead_of_sync(self):
+        config={'mode':'drive','access_mode':'online','local':str(self.profile/'mount'),
+                'remote':'demo','root_id':'root','interval':60,'ignores':DEFAULT_IGNORES,'pins':[]}
+        with patch('lumesync.app.load',return_value=config):
+            window=Window();window.force_exit=True
+            try:
+                with patch.object(window,'connect_google') as connect, patch.object(window,'start') as start:
+                    window.sync_preview()
+                connect.assert_called_once()
+                start.assert_not_called()
+            finally:
+                window.close();self.app.processEvents()
 
     def test_unpin_preserves_existing_offline_file(self):
         from PySide6.QtWidgets import QMessageBox

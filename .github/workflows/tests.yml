@@ -4,6 +4,7 @@ permissions:
   contents: read
 jobs:
   fedora:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     container: fedora:44
     env:
@@ -18,6 +19,12 @@ jobs:
           .venv/bin/python -I -m pip install --require-hashes -r packaging/requirements-fedora44.txt
           .venv/bin/python -I -m pip install --no-deps -e .
       - name: Regression tests
-        run: .venv/bin/python -m unittest discover -s tests -v
+        timeout-minutes: 5
+        run: |
+          test_profile=$(mktemp -d)
+          trap 'rm -rf -- "$test_profile"' EXIT
+          LUMESYNC_DATA_DIR="$test_profile/data" XDG_CONFIG_HOME="$test_profile/config" \
+            timeout --kill-after=10s 180s .venv/bin/python -m unittest discover -s tests -v
       - name: Publication guard
+        if: ${{ always() }}
         run: .venv/bin/python -I scripts/check_publication.py --staged
