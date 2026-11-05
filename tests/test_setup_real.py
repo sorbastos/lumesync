@@ -3,6 +3,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from unittest.mock import patch
 from lumesync.setup_real import add_place,prepare
 
 
@@ -44,6 +45,12 @@ class SetupTests(unittest.TestCase):
         self.data.mkdir();(self.data/'config.json').write_text('{"mode":"demo"}')
         prepare(self.home,self.data,'root')
         self.assertEqual(json.loads(next(self.data.glob('config-before-real-*')).read_text()),{'mode':'demo'})
+    def test_named_profile_uses_a_separate_folder_and_bookmark(self):
+        with patch('lumesync.setup_real.PROFILE_NAME', 'teste'):
+            folder=prepare(self.home,self.data,'root')
+        self.assertEqual(folder,self.home/'Lume Sync - teste/Google Drive')
+        places=(self.home/'.local/share/user-places.xbel').read_text()
+        self.assertIn('Google Drive · Lume Sync · teste',places)
 
 
 if __name__=='__main__':unittest.main()

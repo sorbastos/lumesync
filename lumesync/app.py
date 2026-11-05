@@ -10,13 +10,14 @@ from PySide6.QtGui import QAction, QDesktopServices, QIcon, QColor, QPixmap, QPa
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QTabWidget,
     QFormLayout, QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QFileDialog,
-    QMessageBox, QCheckBox, QSystemTrayIcon, QMenu, QAbstractItemView, QScrollArea)
+    QMessageBox, QCheckBox, QSystemTrayIcon, QMenu, QAbstractItemView, QScrollArea,
+    QTreeWidget, QTreeWidgetItem)
 
 from .instance import SingleInstance
 from .folders import drive_folder
 from .themes import DARK_STYLE, load_theme, save_theme, stylesheet
 from . import __version__
-from .config import DATA, DEFAULT_IGNORE, load, save, build
+from .config import DATA, DEFAULT_IGNORE, PROFILE_NAME, load, save, build
 from .drive import authorize
 from .presentation import STATES, error_help, pin_for_entry, offline_state
 
@@ -134,7 +135,8 @@ class Window(QMainWindow):
         self.active_transfer = None
         self.retry_context = None
         self.last_request = None
-        self.setWindowTitle("Lume Sync")
+        profile_label = f' · {PROFILE_NAME}' if PROFILE_NAME else ''
+        self.setWindowTitle("Lume Sync" + profile_label)
         self.resize(1160, 790)
         self.setMinimumSize(850, 640)
         self.setWindowIcon(app_icon())
@@ -146,7 +148,7 @@ class Window(QMainWindow):
         layout.setContentsMargins(30, 24, 30, 20)
         layout.setSpacing(18)
         header = QHBoxLayout()
-        brand = QLabel("◈  Lume Sync")
+        brand = QLabel("◈  Lume Sync" + profile_label)
         brand.setObjectName("brand")
         header.addWidget(brand)
         header.addStretch()
@@ -239,13 +241,21 @@ class Window(QMainWindow):
         self.tabs.addTab(files, "Arquivos")
         offline_page = QWidget(); offline_layout = QVBoxLayout(offline_page)
         offline_layout.addWidget(QLabel('Itens marcados têm cópias em Offline. O Lume sincroniza enquanto estiver aberto; conflitos aguardam sua escolha.'))
-        self.offline_table = QTableWidget(0, 3)
-        self.offline_table.setHorizontalHeaderLabels(['Cópia offline', 'Estado', 'Motivo'])
-        self.offline_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.offline_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self.offline_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.offline_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        offline_layout.addWidget(self.offline_table)
+        self.offline_tree = QTreeWidget()
+        self.offline_tree.setHeaderLabels(['Cópia offline', 'Estado', 'Motivo'])
+        self.offline_tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.offline_tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.offline_tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.offline_tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.offline_tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.offline_tree.setAlternatingRowColors(True)
+        self.offline_expanded_paths = set()
+        self.offline_action_by_path = {}
+        self.offline_tree.itemExpanded.connect(
+            lambda item: self._remember_offline_folder(item, True))
+        self.offline_tree.itemCollapsed.connect(
+            lambda item: self._remember_offline_folder(item, False))
+        offline_layout.addWidget(self.offline_tree)
         buttons = QHBoxLayout()
         refresh = QPushButton('Sincronizar cópias offline agora'); refresh.clicked.connect(lambda: self.start('offline-sync'))
         buttons.addWidget(refresh)
@@ -317,13 +327,14 @@ class Window(QMainWindow):
         background_note.setWordWrap(True); form.addRow('', background_note)
         settings_scroll = QScrollArea(); settings_scroll.setWidgetResizable(True); settings_scroll.setWidget(settings)
         self.settings_tab_index = self.tabs.addTab(settings_scroll, 'Configurações')
-        footer = QLabel(f"Lume Sync {__version__}  •  Cópias locais + Google Drive  •  Exclusões automáticas desativadas")
+        profile_footer = f'  •  Perfil {PROFILE_NAME}' if PROFILE_NAME else ''
+        footer = QLabel(f"Lume Sync {__version__}{profile_footer}  •  Cópias locais + Google Drive  •  Exclusões automáticas desativadas")
         footer.setObjectName("footer"); layout.addWidget(footer)
         self.timer = QTimer(self); self.timer.timeout.connect(self.tick)
         self.tray = QSystemTrayIcon(app_icon(), self)
-        self.tray.setToolTip('Lume Sync · em segundo plano')
+        self.tray.setToolTip('Lume Sync' + profile_label + ' · em segundo plano')
         menu = QMenu(self)
-        menu.addAction('Abrir Lume Sync', self.restore_window)
+        menu.addAction('Abrir Lume Sync' + profile_label, self.restore_window)
         menu.addAction('Pausar cópias offline', self.pause)
         menu.addAction('Retomar cópias offline', self.resume_offline)
         menu.addAction('Sair', self.request_quit)
@@ -516,12 +527,51 @@ class Window(QMainWindow):
                 self.table.setItem(row, col, QTableWidgetItem(value))
 
     def render_offline_rows(self):
-        self.offline_table.setRowCount(len(self.offline_actions))
-        for row, action in enumerate(self.offline_actions):
+        selected = self.selected_offline_action()
+        selected_path = selected.path if selected else None
+        self.offline_tree.clear()
+        self.offline_action_by_path = {action.path: action for action in self.offline_actions}
+        folders = {}
+        folder_counts = {}
+        for action in sorted(self.offline_actions, key=lambda value: value.path.casefold()):
+            parts = action.path.split('/')
+            parent = self.offline_tree.invisibleRootItem()
+            folder_path = ''
+            for part in parts[:-1]:
+                folder_path = f'{folder_path}/{part}'.lstrip('/')
+                folder_counts[folder_path] = folder_counts.get(folder_path, 0) + 1
+                if folder_path not in folders:
+                    folder = QTreeWidgetItem(parent, [part, '', ''])
+                    folder.setData(0, Qt.ItemDataRole.UserRole + 1, folder_path)
+                    folder.setToolTip(0, folder_path)
+                    folders[folder_path] = folder
+                parent = folders[folder_path]
             state = offline_state(action.path, [action], self.file_errors, self.active_transfer)
             reason = self.file_errors.get(action.path, action.reason)
-            for col, text in enumerate([action.path, state, reason]):
-                self.offline_table.setItem(row, col, QTableWidgetItem(text))
+            item = QTreeWidgetItem(parent, [parts[-1], state, reason])
+            item.setData(0, Qt.ItemDataRole.UserRole, action.path)
+            item.setToolTip(0, action.path)
+            if action.path == selected_path:
+                self.offline_tree.setCurrentItem(item)
+        for path, folder in folders.items():
+            count = folder_counts[path]
+            folder.setText(1, '1 arquivo' if count == 1 else f'{count} arquivos')
+            folder.setExpanded(path in self.offline_expanded_paths)
+
+    def _remember_offline_folder(self, item, expanded):
+        path = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        if not path:
+            return
+        if expanded:
+            self.offline_expanded_paths.add(path)
+        else:
+            self.offline_expanded_paths.discard(path)
+
+    def selected_offline_action(self):
+        item = self.offline_tree.currentItem()
+        if item is None:
+            return None
+        return self.offline_action_by_path.get(item.data(0, Qt.ItemDataRole.UserRole))
 
     def update_errors(self, errors):
         # A metadata refresh must not erase a failed transfer.
@@ -629,11 +679,11 @@ class Window(QMainWindow):
         if self.worker and self.worker.isRunning():
             return
         if offline:
-            row = self.offline_table.currentRow()
-            if not 0 <= row < len(self.offline_actions):
+            action = self.selected_offline_action()
+            if action is None:
                 QMessageBox.information(self, 'Selecione um arquivo', 'Selecione um arquivo na lista de cópias offline.')
                 return
-            path = self.offline_actions[row].path
+            path = action.path
         else:
             row = self.table.currentRow()
             if not 0 <= row < len(self.online_entries):
@@ -651,9 +701,8 @@ class Window(QMainWindow):
             self.start('release-offline', release_path=path)
 
     def resolve_offline(self, choice):
-        row = self.offline_table.currentRow()
-        if not 0 <= row < len(self.offline_actions): return
-        action = self.offline_actions[row]
+        action = self.selected_offline_action()
+        if action is None: return
         if action.kind not in ('conflict', 'deletion'): return
         if choice == 'local' and action.local is None or choice == 'remote' and action.remote is None: return
         if QMessageBox.question(self, 'Resolver cópia offline', f'Usar a versão {choice} de {action.path}?') == QMessageBox.StandardButton.Yes:
@@ -989,7 +1038,7 @@ def main():
     monitor = '--monitor' in sys.argv
     app = QApplication([arg for arg in sys.argv if arg != '--monitor'])
     app.setQuitOnLastWindowClosed(False)
-    app.setApplicationName("Lume Sync")
+    app.setApplicationName("Lume Sync" + (f' · {PROFILE_NAME}' if PROFILE_NAME else ''))
     app.setDesktopFileName("io.github.sorbastos.LumeSync")
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)

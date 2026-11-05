@@ -131,6 +131,18 @@ class SingleInstanceTests(unittest.TestCase):
         try:self.assertTrue(instance.start())
         finally:instance.close()
 
+    def test_different_profiles_can_run_at_the_same_time(self):
+        first = SingleInstance(self.root/'profile-principal', runtime_dir=self.root/'runtime')
+        second = SingleInstance(self.root/'profile-teste', runtime_dir=self.root/'runtime')
+        try:
+            self.assertTrue(first.start())
+            self.assertTrue(second.start())
+            self.assertNotEqual(first.lock_path, second.lock_path)
+            self.assertNotEqual(first.socket_path, second.socket_path)
+        finally:
+            second.close()
+            first.close()
+
     def test_locked_but_unresponsive_instance_does_not_open_a_duplicate(self):
         instance=SingleInstance(self.root/'profile',runtime_dir=self.root/'runtime')
         fd=os.open(instance.lock_path,os.O_CREAT|os.O_RDWR,0o600)

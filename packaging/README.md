@@ -33,6 +33,12 @@ Após instalar, abra **Lume Sync** no menu. Os comandos `lume-sync` e `lume-sync
 
 O pacote não inclui contas, tokens, arquivos sincronizados ou cache e não importa automaticamente o perfil do projeto. A remoção do RPM preserva os dados do usuário. Para abrir com um perfil existente, feche a versão anterior e informe um caminho absoluto em `LUMESYNC_DATA_DIR`; não execute duas versões com o mesmo perfil ao mesmo tempo.
 
+Para testar outra configuração sem interferir no perfil principal, use um perfil nomeado. Cada perfil tem token, estado, montagem e pasta offline próprios; a mesma credencial OAuth pode ser autorizada novamente:
+
+```bash
+lume-sync --profile teste
+```
+
 ```bash
 # Dentro da pasta do projeto, usando o perfil existente:
 LUMESYNC_DATA_DIR="$PWD/runtime" lume-sync

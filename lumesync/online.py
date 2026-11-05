@@ -13,7 +13,7 @@ import tempfile
 from datetime import datetime,timezone
 from pathlib import Path
 
-from .config import DATA,DEFAULT_IGNORE,load,save
+from .config import DATA,DEFAULT_IGNORE,PROFILE_NAME,load,save
 from .drive import private_json,DriveProvider,API,FIELDS,FOLDER
 from .ignore import DEFAULT_TEXT,IgnoreRules
 
@@ -463,8 +463,8 @@ def setup(home=None, config=None):
     provider=DriveProvider(DATA/'google-token.json',requested)
     root=provider.request('GET',API+'/'+requested,params={'fields':'id,mimeType'}).json()
     if root.get('mimeType')!=FOLDER:raise RuntimeError('O link precisa ser de uma pasta do Google Drive. Selecione uma pasta e tente novamente.')
-    parent=home/'Lume Sync';ignore=parent/'.lumeignore'
-    if parent.is_symlink():raise ValueError('A pasta Lume Sync não pode ser um link simbólico')
+    parent=home/('Lume Sync' + (f' - {PROFILE_NAME}' if PROFILE_NAME else ''));ignore=parent/'.lumeignore'
+    if parent.is_symlink():raise ValueError('A pasta do Lume Sync não pode ser um link simbólico')
     parent.mkdir(parents=True,exist_ok=True)
     if not ignore.exists():ignore.write_text(DEFAULT_TEXT)
     config={**old,'mode':'drive','access_mode':'online','root_id':root['id'],
@@ -475,9 +475,9 @@ def setup(home=None, config=None):
     controller=OnlineDrive(config)
     controller.configure_backend()
     controller.start()
-    add_place(home/'.local/share/user-places.xbel',controller.folder)
+    add_place(home/'.local/share/user-places.xbel',controller.folder, PROFILE_NAME)
     offline=Path(config['offline_local']);offline.mkdir(parents=True,exist_ok=True)
-    add_place(home/'.local/share/user-places.xbel',offline)
+    add_place(home/'.local/share/user-places.xbel',offline, PROFILE_NAME)
     save(config)
     return controller
 

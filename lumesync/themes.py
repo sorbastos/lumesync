@@ -18,10 +18,10 @@ QPushButton#primary:disabled { background: #294940; color: #839d94; }
 QTabWidget::pane { border: 1px solid #2a3c49; border-radius: 5px; }
 QTabBar::tab { padding: 11px 22px; color: #9cb2c2; }
 QTabBar::tab:selected { color: #70dbb7; border-bottom: 2px solid #70dbb7; }
-QTableWidget { border: none; background: #14212b; alternate-background-color: #182833; gridline-color: #233643; }
+QTableWidget, QTreeWidget { border: none; background: #14212b; alternate-background-color: #182833; gridline-color: #233643; }
 QHeaderView::section { background: #1e303e; border: none; padding: 10px; text-align: left; color: #a8bfce; }
-QTableWidget::item { padding: 8px; }
-QTableWidget::item:selected { background: #2e4a59; }
+QTableWidget::item, QTreeWidget::item { padding: 8px; }
+QTableWidget::item:selected, QTreeWidget::item:selected { background: #2e4a59; }
 QLineEdit, QPlainTextEdit, QSpinBox, QComboBox { background: #162630; border: 1px solid #36505f; border-radius: 5px; padding: 7px; }
 QLabel#footer { color: #859daa; font-size: 11px; }
 """

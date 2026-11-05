@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
 from lumesync.app import Window, STYLE
-from lumesync.core import Engine, State, LocalProvider, DEFAULT_IGNORES
+from lumesync.core import Action, Engine, Item, State, LocalProvider, DEFAULT_IGNORES
 
 
 class GuiTests(unittest.TestCase):
@@ -154,6 +154,35 @@ class StatusAndRetryTests(unittest.TestCase):
         self.assertIn('Na nuvem', self.window.table.item(1, 1).text())
         self.window.receive_transfer({'path': 'a.txt', 'kind': 'download'})
         self.assertEqual(self.window.table.item(0, 1).text(), 'Baixando…')
+
+    def test_offline_copies_are_grouped_in_collapsible_folders(self):
+        item = Item('ignored', 'hash', 4)
+        self.window.offline_actions = [
+            Action('Curso de Python/aula/a.py', 'equal', 'Conteúdo igual', item, item),
+            Action('Curso de Python/aula/b.py', 'download', 'Novo na nuvem', None, item),
+            Action('arquivo-solto.txt', 'equal', 'Conteúdo igual', item, item),
+        ]
+        self.window.render_offline_rows()
+
+        self.assertEqual(self.window.offline_tree.topLevelItemCount(), 2)
+        course = next(self.window.offline_tree.topLevelItem(index)
+                      for index in range(self.window.offline_tree.topLevelItemCount())
+                      if self.window.offline_tree.topLevelItem(index).text(0) == 'Curso de Python')
+        self.assertEqual(course.text(0), 'Curso de Python')
+        self.assertEqual(course.text(1), '2 arquivos')
+        self.assertFalse(course.isExpanded())
+        lesson = course.child(0)
+        self.assertEqual(lesson.text(0), 'aula')
+        self.assertEqual(lesson.childCount(), 2)
+        lesson.setExpanded(True)
+        self.window.offline_tree.setCurrentItem(lesson.child(1))
+        self.assertEqual(self.window.selected_offline_action().path, 'Curso de Python/aula/b.py')
+
+        self.window.render_offline_rows()
+        course = next(self.window.offline_tree.topLevelItem(index)
+                      for index in range(self.window.offline_tree.topLevelItemCount())
+                      if self.window.offline_tree.topLevelItem(index).text(0) == 'Curso de Python')
+        self.assertTrue(course.child(0).isExpanded())
 
     def test_failed_file_survives_metadata_refresh_and_retry_is_scoped(self):
         self.window.last_request = {'job': 'offline-sync'}

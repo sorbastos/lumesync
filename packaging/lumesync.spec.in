@@ -34,5 +34,6 @@ tar -xzf %{SOURCE0} -C %{buildroot}
 /usr/bin/lume-sync-cli
 /usr/bin/lume-sync-conectar
 /usr/share/applications/io.github.sorbastos.LumeSync.desktop
+/usr/share/applications/io.github.sorbastos.LumeSync.Test.desktop
 /usr/share/icons/hicolor/scalable/apps/io.github.sorbastos.LumeSync.svg
 %doc /usr/share/doc/lumesync

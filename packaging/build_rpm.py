@@ -123,13 +123,14 @@ def main():
         cfg.write_text('\n'.join(line for line in cfg.read_text().splitlines() if not line.startswith('command =')) + '\n')
         if list(venv.rglob('direct_url.json')):
             raise RuntimeError('Metadados locais inesperados no ambiente empacotado.')
-        for command, module in [('lume-sync', 'lumesync.app'), ('lume-sync-cli', 'lumesync.cli'), ('lume-sync-conectar', 'lumesync.online')]:
+        for command, target in [('lume-sync', 'app'), ('lume-sync-cli', 'cli'), ('lume-sync-conectar', 'online')]:
             path = payload/'usr/bin'/command; path.parent.mkdir(parents=True, exist_ok=True)
             extra = ' setup --launch' if command == 'lume-sync-conectar' else ''
             path.write_text('#!/bin/sh\nset -eu\nunset PYTHONHOME PYTHONPATH QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH\n'
-                            'exec /opt/lumesync/venv/bin/python -I -B -m ' + module + extra + ' "$@"\n')
+                            'exec /opt/lumesync/venv/bin/python -I -B -m lumesync.launcher ' + target + extra + ' "$@"\n')
             path.chmod(0o755)
         for name, destination in [('io.github.sorbastos.LumeSync.desktop', 'usr/share/applications'),
+                                  ('io.github.sorbastos.LumeSync.Test.desktop', 'usr/share/applications'),
                                   ('io.github.sorbastos.LumeSync.svg', 'usr/share/icons/hicolor/scalable/apps')]:
             folder = payload/destination; folder.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT/'packaging'/name, folder/name)

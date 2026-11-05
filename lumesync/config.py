@@ -1,11 +1,20 @@
 import json
 import os
+import re
 from pathlib import Path
 from .core import State, Engine, LocalProvider, DEFAULT_IGNORES
 from .drive import DriveProvider, private_json
 
 PROJECT = Path(__file__).resolve().parent.parent
 SOURCE_CHECKOUT = (PROJECT / 'pyproject.toml').is_file()
+
+
+def profile_name(environ=None):
+    environ = os.environ if environ is None else environ
+    value = environ.get('LUMESYNC_PROFILE', '')
+    if value and not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,31}', value):
+        raise ValueError('LUMESYNC_PROFILE contém um nome de perfil inválido.')
+    return value
 
 
 def data_directory(project=PROJECT, home=None, environ=None):
@@ -17,6 +26,12 @@ def data_directory(project=PROJECT, home=None, environ=None):
         if not path.is_absolute():
             raise ValueError('LUMESYNC_DATA_DIR precisa ser um caminho absoluto.')
         return path
+    profile = profile_name(environ)
+    if profile:
+        base = Path(environ.get('XDG_DATA_HOME') or home / '.local/share')
+        if not base.is_absolute():
+            base = home / '.local/share'
+        return base / 'lumesync' / 'named-profiles' / profile
     if (project / 'pyproject.toml').is_file():
         return project / 'runtime'
     base = Path(environ.get('XDG_DATA_HOME') or home / '.local/share')
@@ -27,7 +42,8 @@ def data_directory(project=PROJECT, home=None, environ=None):
 
 DATA = data_directory()
 CONFIG = DATA / 'config.json'
-DEMO = PROJECT / 'demo' if SOURCE_CHECKOUT else DATA / 'demo'
+PROFILE_NAME = profile_name()
+DEMO = PROJECT / 'demo' if SOURCE_CHECKOUT and not PROFILE_NAME else DATA / 'demo'
 DEFAULT_IGNORE = PROJECT / '.lumeignore' if SOURCE_CHECKOUT else DATA / '.lumeignore'
 
 

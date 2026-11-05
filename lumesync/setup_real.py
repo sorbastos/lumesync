@@ -9,7 +9,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from .config import DATA, DEMO
+from .config import DATA, DEMO, PROFILE_NAME
 from .core import DEFAULT_IGNORES
 from .drive import DriveProvider, private_json, API, FOLDER
 
@@ -19,7 +19,7 @@ ET.register_namespace('kdepriv', 'http://www.kde.org/kdepriv')
 ET.register_namespace('mime', 'http://www.freedesktop.org/standards/shared-mime-info')
 
 
-def add_place(places: Path, folder: Path):
+def add_place(places: Path, folder: Path, profile=''):
     """Preserva favoritos e guarda backup antes de adicionar uma única entrada."""
     original = places.read_bytes() if places.exists() else None
     root = ET.fromstring(original) if original is not None else ET.Element('xbel')
@@ -29,7 +29,7 @@ def add_place(places: Path, folder: Path):
     if any(item.get('href') == href for item in root.findall('bookmark')):
         return
     bookmark = ET.SubElement(root, 'bookmark', href=href)
-    ET.SubElement(bookmark, 'title').text = 'Google Drive · Lume Sync'
+    ET.SubElement(bookmark, 'title').text = 'Google Drive · Lume Sync' + (f' · {profile}' if profile else '')
     info = ET.SubElement(bookmark, 'info')
     meta = ET.SubElement(info, 'metadata', owner='http://freedesktop.org')
     ET.SubElement(meta, '{'+BOOKMARK_NS+'}icon', name='folder-cloud')
@@ -56,8 +56,9 @@ def add_place(places: Path, folder: Path):
 
 
 def prepare(home: Path, data: Path, root_id: str):
-    folder = home/'Lume Sync'/'Google Drive'
-    for candidate in (home/'Lume Sync', folder):
+    parent = home/('Lume Sync' + (f' - {PROFILE_NAME}' if PROFILE_NAME else ''))
+    folder = parent/'Google Drive'
+    for candidate in (parent, folder):
         if candidate.is_symlink():
             raise ValueError('A pasta de sincronização não pode ser um link simbólico')
     marker = folder/'.lume-managed'
@@ -67,7 +68,7 @@ def prepare(home: Path, data: Path, root_id: str):
     marker.write_text('Pasta de sincronização do Lume Sync.\n')
     config = {'mode':'drive','local':str(folder),'remote':str(DEMO/'nuvem'),
               'root_id':root_id,'interval':300,'ignores':DEFAULT_IGNORES}
-    add_place(home/'.local/share/user-places.xbel', folder)
+    add_place(home/'.local/share/user-places.xbel', folder, PROFILE_NAME)
     current = data/'config.json'
     if current.exists():
         backup = data/('config-before-real-'+str(time.time_ns())+'.json')

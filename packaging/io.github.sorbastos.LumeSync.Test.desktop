@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Lume Sync — Ambiente de teste
+Comment=Abra um perfil isolado para testar o Lume Sync
+Exec=lume-sync --profile teste
+TryExec=lume-sync
+Icon=io.github.sorbastos.LumeSync
+Terminal=false
+Categories=Network;
+StartupNotify=true
+StartupWMClass=Lume Sync

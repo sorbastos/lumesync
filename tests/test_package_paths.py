@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from lumesync.config import data_directory
+from lumesync.launcher import select_profile
 
 
 class PackagePathsTests(unittest.TestCase):
@@ -34,3 +35,27 @@ class PackagePathsTests(unittest.TestCase):
         self.assertEqual(data_directory(self.project, self.home_dir, {'LUMESYNC_DATA_DIR': str(profile)}), profile)
         with self.assertRaises(ValueError):
             data_directory(self.project, self.home_dir, {'LUMESYNC_DATA_DIR': 'runtime'})
+
+    def test_named_profile_is_isolated_and_does_not_move_default_profile(self):
+        normal = data_directory(self.project, self.home_dir, {})
+        test = data_directory(self.project, self.home_dir, {'LUMESYNC_PROFILE': 'teste'})
+        other = data_directory(self.project, self.home_dir, {'LUMESYNC_PROFILE': 'outro-teste'})
+        self.assertEqual(normal, self.home_dir/'.local/share/lumesync')
+        self.assertEqual(test, normal/'named-profiles/teste')
+        self.assertEqual(other, normal/'named-profiles/outro-teste')
+        self.assertNotEqual(test, other)
+
+    def test_launcher_selects_named_profile_before_importing_application(self):
+        environ = {}
+        remaining = select_profile(['--profile', 'teste', '--monitor'], environ)
+        self.assertEqual(environ['LUMESYNC_PROFILE'], 'teste')
+        self.assertEqual(remaining, ['--monitor'])
+
+    def test_invalid_or_ambiguous_profile_is_rejected(self):
+        for name in ('Teste', '../teste', 'teste_2', 'a'*33):
+            with self.subTest(name=name), self.assertRaises(SystemExit):
+                select_profile(['--profile', name], {})
+        with self.assertRaises(SystemExit):
+            select_profile(['--profile', 'teste'], {'LUMESYNC_DATA_DIR': str(self.root/'profile')})
+        with self.assertRaises(ValueError):
+            data_directory(self.project, self.home_dir, {'LUMESYNC_PROFILE': '../teste'})
