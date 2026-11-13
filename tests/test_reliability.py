@@ -61,6 +61,46 @@ class ReliabilityTests(unittest.TestCase):
         self.assertIn('edited.txt',b.state.baseline());b.state.close()
         self.assertTrue((self.data/'profiles'/old_key/'state.sqlite3').exists())
 
+    def test_visible_offline_folder_moves_to_private_storage_with_state(self):
+        mount = self.root/'Lume Sync/Google Drive'; mount.mkdir(parents=True)
+        old = mount.parent/'Offline'; old.mkdir(); (old/'edit.txt').write_text('alteração preservada')
+        cfg = {**self.cfg, 'access_mode':'online', 'local':str(mount), 'offline_local':str(old)}
+        (self.data/'config.json').write_text(json.dumps(cfg))
+        engine = config.build({**cfg, 'access_mode':'offline', 'local':str(old)}, data=self.data)
+        engine.state.record('edit.txt', 'baseline-segura'); engine.state.close()
+
+        with patch('lumesync.setup_real.remove_place') as remove_place:
+            updated = config.migrate_offline_storage(cfg, data=self.data)
+
+        private = self.data/'kept-files'
+        self.assertFalse(old.exists())
+        self.assertEqual((private/'edit.txt').read_text(), 'alteração preservada')
+        self.assertEqual(updated['offline_local'], str(private))
+        self.assertEqual(json.loads((self.data/'config.json').read_text())['offline_local'], str(private))
+        self.assertEqual(len(list(self.data.glob('config-before-kept-files-*'))), 1)
+        remove_place.assert_called_once()
+        migrated = config.build({**updated, 'access_mode':'offline', 'local':str(private)}, data=self.data)
+        self.assertEqual(migrated.state.baseline(), {'edit.txt':'baseline-segura'})
+        migrated.state.close()
+
+    def test_storage_migration_preserves_both_locations_on_collision(self):
+        mount = self.root/'Lume Sync/Google Drive'; mount.mkdir(parents=True)
+        old = mount.parent/'Offline'; old.mkdir(); (old/'old.txt').write_text('antigo')
+        private = self.data/'kept-files'; private.mkdir(); (private/'new.txt').write_text('novo')
+        cfg = {**self.cfg, 'access_mode':'online', 'local':str(mount), 'offline_local':str(old)}
+        with self.assertRaisesRegex(RuntimeError, 'duas pastas foram preservadas'):
+            config.migrate_offline_storage(cfg, data=self.data)
+        self.assertEqual((old/'old.txt').read_text(), 'antigo')
+        self.assertEqual((private/'new.txt').read_text(), 'novo')
+
+    def test_custom_offline_folder_is_never_moved_automatically(self):
+        mount = self.root/'Lume Sync/Google Drive'; mount.mkdir(parents=True)
+        custom = self.root/'Minha pasta'; custom.mkdir(); (custom/'a').write_text('preservar')
+        cfg = {**self.cfg, 'access_mode':'online', 'local':str(mount), 'offline_local':str(custom)}
+        with self.assertRaisesRegex(RuntimeError, 'personalizada'):
+            config.migrate_offline_storage(cfg, data=self.data)
+        self.assertEqual((custom/'a').read_text(), 'preservar')
+
     def test_same_size_download_requires_temporary_space_and_preserves_target(self):
         engine=self.local_engine()
         (engine.local/'a').write_text('old')

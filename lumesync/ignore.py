@@ -16,12 +16,34 @@ node_modules/
 .lume-*
 *.insyncdl
 .lumeignore
+# Dados locais e credenciais nunca entram nas cópias mantidas.
+runtime/
+google-validacao/
+.env
+.env.*
+*.db
+*.sqlite*
+*.log
+*.conf
+*.pem
+*.key
+*.p12
+*.pfx
+client_secret*.json
+*token*.json
+*credentials*.json
 # Exemplos:
 # /Filmes/
 # /Series/
 # *.tmp
 # !anotacoes.tmp
 '''
+
+SENSITIVE_RULES = [
+    'runtime/', 'google-validacao/', '.env', '.env.*', '*.db', '*.sqlite*',
+    '*.log', '*.conf', '*.pem', '*.key', '*.p12', '*.pfx',
+    'client_secret*.json', '*token*.json', '*credentials*.json',
+]
 
 
 def glob_regex(pattern):

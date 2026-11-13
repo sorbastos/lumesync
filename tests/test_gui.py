@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 from lumesync.app import Window, STYLE
 from lumesync.core import Action, Engine, Item, State, LocalProvider, DEFAULT_IGNORES
 
@@ -174,6 +174,10 @@ class StatusAndRetryTests(unittest.TestCase):
         lesson = course.child(0)
         self.assertEqual(lesson.text(0), 'aula')
         self.assertEqual(lesson.childCount(), 2)
+        self.window.offline_tree.setCurrentItem(lesson)
+        with patch('lumesync.app.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes), patch.object(self.window, 'start') as start:
+            self.window.release_selected(True)
+            start.assert_called_once_with('release-offline', release_path='Curso de Python/aula')
         lesson.setExpanded(True)
         self.window.offline_tree.setCurrentItem(lesson.child(1))
         self.assertEqual(self.window.selected_offline_action().path, 'Curso de Python/aula/b.py')
@@ -183,6 +187,17 @@ class StatusAndRetryTests(unittest.TestCase):
                       for index in range(self.window.offline_tree.topLevelItemCount())
                       if self.window.offline_tree.topLevelItem(index).text(0) == 'Curso de Python')
         self.assertTrue(course.child(0).isExpanded())
+
+    def test_kept_file_opens_from_private_storage(self):
+        kept = Path(self.config['offline_local']); kept.mkdir(); (kept/'a.txt').write_text('local')
+        item = Item('a.txt', 'hash', 5)
+        self.window.offline_actions = [Action('a.txt', 'equal', 'Conteúdo igual', item, item)]
+        self.window.render_offline_rows()
+        self.window.offline_tree.setCurrentItem(self.window.offline_tree.topLevelItem(0))
+        with patch('lumesync.app.QDesktopServices.openUrl') as open_url:
+            self.window.open_kept_file()
+        open_url.assert_called_once()
+        self.assertEqual(open_url.call_args.args[0].toLocalFile(), str(kept/'a.txt'))
 
     def test_failed_file_survives_metadata_refresh_and_retry_is_scoped(self):
         self.window.last_request = {'job': 'offline-sync'}

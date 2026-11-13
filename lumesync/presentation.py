@@ -1,7 +1,7 @@
 """Textos e estados da interface, sem acesso à rede ou aos arquivos do usuário."""
 from __future__ import annotations
 
-STATES = {"equal": "Disponível offline · em dia", "upload": "Aguardando envio",
+STATES = {"equal": "Mantido neste computador · em dia", "upload": "Aguardando envio",
           "download": "Aguardando download", "conflict": "Conflito · escolha uma versão",
           "deletion": "Arquivo ausente · escolha uma versão", "blocked": "Bloqueado"}
 
@@ -11,9 +11,9 @@ def error_help(message):
     if 'conta do google drive não conectada' in text or ('google-token.json' in text and ('no such file' in text or 'inexistente' in text)):
         return 'Conecte sua conta do Google Drive', 'Abra Configurações e clique em Conectar Google Drive.'
     if 'a cópia ainda não está igual' in text:
-        return 'A cópia offline tem pendências', 'Sincronize o arquivo ou resolva o conflito antes de liberar espaço.'
+        return 'O arquivo mantido tem pendências', 'Sincronize o arquivo ou resolva o conflito antes de liberar espaço.'
     if any(word in text for word in ('espaço', 'no space left', 'disk full')):
-        return 'Sem espaço no computador', 'Libere espaço ou selecione menos itens offline e tente novamente.'
+        return 'Sem espaço no computador', 'Libere espaço ou mantenha menos itens no computador e tente novamente.'
     if any(word in text for word in ('401', 'invalid_grant', 'unauthorized', 'token expir', 'revoked', 'sessão google expirada')):
         return 'A conta precisa de autorização', 'Conecte sua conta novamente em Configurações.'
     if any(word in text for word in ('403', 'permission denied', 'permissão', 'forbidden')):

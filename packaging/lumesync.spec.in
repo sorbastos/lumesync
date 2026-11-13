@@ -4,7 +4,7 @@
 Name: lumesync
 Version: @VERSION@
 Release: 1%{?dist}
-Summary: Google Drive sob demanda e arquivos offline para Linux
+Summary: Google Drive sob demanda e arquivos mantidos no computador
 License: LicenseRef-LumeSync-NoLicenseDefined
 URL: https://github.com/sorbastos/lumesync
 Source0: payload.tar.gz
@@ -15,7 +15,7 @@ Requires: @REQUIRES@
 
 %description
 Lume Sync permite acessar o Google Drive no gerenciador de arquivos e
-selecionar cópias offline. Inclui dependências Python em ambiente virtual
+selecionar arquivos para manter no computador. Inclui dependências Python em ambiente virtual
 privado, separado dos pacotes Python do sistema.
 Pacote local para Fedora 44 x86_64; não é um pacote oficial do Fedora.
 

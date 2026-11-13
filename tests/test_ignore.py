@@ -3,10 +3,15 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from lumesync.ignore import IgnoreRules
+from lumesync.ignore import IgnoreRules, SENSITIVE_RULES
 
 
 class IgnoreTests(unittest.TestCase):
+    def test_sensitive_local_data_rules(self):
+        rules=IgnoreRules(SENSITIVE_RULES)
+        for path in ('projeto/runtime/config.json','projeto/google-validacao/client.json',
+                     'projeto/.env','projeto/google-token.json','projeto/private.pem'):
+            with self.subTest(path=path):self.assertTrue(rules.matches(path))
     def test_comments_and_negation_last_match_wins(self):
         rules=IgnoreRules(['# comment','*.tmp','!keep.tmp'])
         self.assertTrue(rules.matches('nested/skip.tmp'))

@@ -4,7 +4,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import patch
-from lumesync.setup_real import add_place,prepare
+from lumesync.setup_real import add_place,remove_place,prepare
 
 
 class SetupTests(unittest.TestCase):
@@ -29,6 +29,13 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(len(bookmarks),2)
         self.assertEqual(bookmarks[0].findtext('title'),'Original')
         self.assertEqual(next(self.home.glob('*.lume-backup-*')).read_bytes(),original)
+    def test_remove_only_matching_favorite(self):
+        places=self.home/'places.xbel'
+        add_place(places,self.home/'Drive');add_place(places,self.home/'Offline')
+        self.assertTrue(remove_place(places,self.home/'Offline'))
+        bookmarks=ET.parse(places).getroot().findall('bookmark')
+        self.assertEqual([item.get('href') for item in bookmarks],[(self.home/'Drive').absolute().as_uri()])
+        self.assertFalse(remove_place(places,self.home/'Offline'))
     def test_existing_personal_folder_refused(self):
         folder=self.home/'Lume Sync/Google Drive';folder.mkdir(parents=True);(folder/'personal').write_text('keep')
         with self.assertRaises(ValueError):prepare(self.home,self.data,'root')

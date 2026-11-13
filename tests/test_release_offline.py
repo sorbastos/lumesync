@@ -78,8 +78,24 @@ class ReleaseOfflineTests(unittest.TestCase):
             self.controller.release_file('pasta/a.txt')
         self.assertTrue((self.local/'pasta/a.txt').exists())
 
-    def test_directory_and_unsafe_path_are_refused(self):
-        for path in ['pasta', 'pasta/../../outside']:
+    def test_directory_releases_all_local_files_and_preserves_cloud(self):
+        self.controller.release_file('pasta')
+        self.assertFalse((self.local/'pasta').exists())
+        self.assertTrue((self.remote/'pasta/a.txt').is_file())
+        self.assertTrue((self.remote/'pasta/b.txt').is_file())
+        self.assertEqual(self.saved['pins'], [])
+        self.assertEqual(self.saved['offline_excludes'], ['pasta'])
+
+    def test_directory_with_changed_file_preserves_every_file(self):
+        (self.local/'pasta/b.txt').write_text('edição pendente')
+        with self.assertRaisesRegex(RuntimeError, 'Sincronize'):
+            self.controller.release_file('pasta')
+        self.assertTrue((self.local/'pasta/a.txt').is_file())
+        self.assertEqual((self.local/'pasta/b.txt').read_text(), 'edição pendente')
+        self.assertEqual(self.saved, self.config)
+
+    def test_unsafe_path_is_refused(self):
+        for path in ['pasta/../../outside']:
             with self.subTest(path=path), self.assertRaises(ValueError):
                 self.controller.release_file(path)
         self.assertTrue((self.local/'pasta/a.txt').exists())

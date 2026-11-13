@@ -13,7 +13,7 @@ import tempfile
 from datetime import datetime,timezone
 from pathlib import Path
 
-from .config import DATA,DEFAULT_IGNORE,PROFILE_NAME,load,save
+from .config import DATA,DEFAULT_IGNORE,PROFILE_NAME,kept_files_directory,load,save
 from .drive import private_json,DriveProvider,API,FIELDS,FOLDER
 from .ignore import DEFAULT_TEXT,IgnoreRules
 
@@ -419,28 +419,53 @@ class OnlineDrive:
         try:
             with exclusive(engine.state.directory):
                 target = safe_path(engine.local, relative)
-                if not target.is_file():
-                    raise ValueError('Selecione um arquivo baixado. A liberação de pastas inteiras ainda não está disponível.')
-                action = next((a for a in engine.plan() if a.path == relative), None)
-                if action is None or action.kind != 'equal' or not action.local or not action.remote:
-                    raise RuntimeError('A cópia ainda não está igual à nuvem. Sincronize ou resolva as pendências antes de liberar espaço.')
-                def identity():
-                    stat = safe_path(engine.local, relative).stat()
+                if not target.is_file() and not target.is_dir():
+                    raise ValueError('Selecione um arquivo ou pasta baixada.')
+                directory = target.is_dir()
+                paths = list(target.rglob('*')) if directory else [target]
+                files = []
+                for path in paths:
+                    safe_path(engine.local, path.relative_to(engine.local).as_posix())
+                    if path.is_file():
+                        files.append(path)
+                    elif not path.is_dir():
+                        raise ValueError('A pasta contém um item que não pode ser liberado com segurança.')
+                actions = {a.path: a for a in engine.plan()}
+                def identity(path):
+                    stat = safe_path(engine.local, path.relative_to(engine.local).as_posix()).stat()
                     return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
-                before = identity()
-                if digest(target) != action.remote.checksum or identity() != before:
-                    raise RuntimeError('O arquivo mudou durante a verificação. A cópia foi preservada; tente novamente.')
+                verified = {}
+                for path in files:
+                    key = path.relative_to(engine.local).as_posix()
+                    action = actions.get(key)
+                    if action is None or action.kind != 'equal' or not action.local or not action.remote:
+                        raise RuntimeError('A cópia ainda não está igual à nuvem. Sincronize ou resolva as pendências antes de liberar espaço: ' + key)
+                    before = identity(path)
+                    if digest(path) != action.remote.checksum or identity(path) != before:
+                        raise RuntimeError('O arquivo mudou durante a verificação. A cópia foi preservada; tente novamente.')
+                    verified[path] = before
                 updated = copy.deepcopy(original)
-                updated['pins'] = [p for p in original.get('pins', []) if p['path'] != relative]
+                updated['pins'] = [p for p in original.get('pins', [])
+                                   if not (p['path'] == relative or p['path'].startswith(relative + '/'))]
                 updated['offline_excludes'] = sorted(set(original.get('offline_excludes', [])) | {relative})
                 # Forget the intentional local absence so selecting it again downloads it.
-                engine.state.db.execute('delete from baseline where path = ?', (relative,))
+                engine.state.db.executemany('delete from baseline where path = ?',
+                                           [(p.relative_to(engine.local).as_posix(),) for p in files])
                 engine.state.db.commit()
                 save(updated)
                 try:
-                    if identity() != before:
+                    if any(identity(path) != before for path, before in verified.items()):
                         raise RuntimeError('O arquivo mudou. A cópia local foi preservada.')
-                    target.unlink()
+                    if directory and set(target.rglob('*')) != set(paths):
+                        raise RuntimeError('A pasta mudou. A cópia local foi preservada; tente novamente.')
+                    for path, before in verified.items():
+                        if identity(path) != before:
+                            raise RuntimeError('O arquivo mudou. A cópia local foi preservada.')
+                        path.unlink()
+                    if directory:
+                        for path in sorted((p for p in paths if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+                            path.rmdir()
+                        target.rmdir()
                 except Exception:
                     save(original)
                     raise
@@ -450,7 +475,7 @@ class OnlineDrive:
             engine.state.close()
 
     def offline_config(self):
-        return {**self.config,'access_mode':'offline','local':self.config.get('offline_local',str(self.folder.parent/'Offline')),
+        return {**self.config,'access_mode':'offline','local':self.config.get('offline_local',str(kept_files_directory(self.data))),
                 'include_paths':[p['path'] for p in self.config.get('pins',[])],
                 'offline_excludes':list(self.config.get('offline_excludes', [])) + self.unavailable_paths}
 
@@ -468,7 +493,7 @@ def setup(home=None, config=None):
     parent.mkdir(parents=True,exist_ok=True)
     if not ignore.exists():ignore.write_text(DEFAULT_TEXT)
     config={**old,'mode':'drive','access_mode':'online','root_id':root['id'],
-            'local':str(parent/'Google Drive'),'offline_local':str(parent/'Offline'),
+            'local':str(parent/'Google Drive'),'offline_local':str(kept_files_directory(DATA)),
             'ignore_file':str(ignore),'pins':old.get('pins',[]),'interval':old.get('interval',60),
             'drive_scope':old.get('drive_scope', 'all' if requested == 'root' else 'folder')}
     private_json(DATA/('config-before-online-'+str(time.time_ns())+'.json'),old)
@@ -477,7 +502,7 @@ def setup(home=None, config=None):
     controller.start()
     add_place(home/'.local/share/user-places.xbel',controller.folder, PROFILE_NAME)
     offline=Path(config['offline_local']);offline.mkdir(parents=True,exist_ok=True)
-    add_place(home/'.local/share/user-places.xbel',offline, PROFILE_NAME)
+    offline.chmod(0o700)
     save(config)
     return controller
 

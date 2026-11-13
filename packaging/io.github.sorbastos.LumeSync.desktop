@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Lume Sync
-Comment=Acesse seu Google Drive e escolha arquivos para uso offline
+Comment=Acesse seu Google Drive e escolha o que manter no computador
 Exec=lume-sync
 TryExec=lume-sync
 Icon=io.github.sorbastos.LumeSync

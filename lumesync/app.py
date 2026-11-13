@@ -68,10 +68,10 @@ class Worker(QThread):
                     controller.reconnect()
                 if self.job == 'release-offline':
                     controller.release_file(self.release_path)
-                    self.message.emit('Cópia offline removida; arquivo mantido no Drive: ' + self.release_path)
+                    self.message.emit('Espaço liberado; conteúdo mantido no Drive: ' + self.release_path)
                 if self.job == 'pin':
                     path = controller.pin(self.entry, self.relative)
-                    self.message.emit('Cópia offline selecionada: ' + path)
+                    self.message.emit('Arquivo mantido neste computador: ' + path)
                 if controller.config.get('pins'):
                     controller.reconcile_pins()
                     engine = build(controller.offline_config())
@@ -221,7 +221,7 @@ class Window(QMainWindow):
         self.table.itemSelectionChanged.connect(self.selection_changed)
         self.table.cellDoubleClicked.connect(self.open_online_entry)
         resolutions.addWidget(self.local_button); resolutions.addWidget(self.remote_button); resolutions.addStretch()
-        self.release_button = QPushButton('Liberar cópia offline')
+        self.release_button = QPushButton('Liberar espaço')
         self.release_button.clicked.connect(lambda: self.release_selected(False))
         self.release_button.setEnabled(False)
         resolutions.addWidget(self.release_button)
@@ -233,16 +233,14 @@ class Window(QMainWindow):
         self.pin_button.clicked.connect(self.pin_selected)
         self.reconnect_button = QPushButton('Reconectar / aplicar .lumeignore')
         self.reconnect_button.clicked.connect(self.reconnect_online)
-        self.offline_open_button = QPushButton('Abrir cópias offline')
-        self.offline_open_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(self.config.get('offline_local', ''))))
-        for widget in (self.back_button, self.pin_button, self.offline_open_button, self.reconnect_button): online_bar.addWidget(widget)
-        self.online_bar_widgets = [self.back_button, self.pin_button, self.offline_open_button, self.reconnect_button]
+        for widget in (self.back_button, self.pin_button, self.reconnect_button): online_bar.addWidget(widget)
+        self.online_bar_widgets = [self.back_button, self.pin_button, self.reconnect_button]
         online_bar.addStretch(); file_layout.addLayout(online_bar)
         self.tabs.addTab(files, "Arquivos")
         offline_page = QWidget(); offline_layout = QVBoxLayout(offline_page)
-        offline_layout.addWidget(QLabel('Itens marcados têm cópias em Offline. O Lume sincroniza enquanto estiver aberto; conflitos aguardam sua escolha.'))
+        offline_layout.addWidget(QLabel('Itens marcados permanecem neste computador. Clique duas vezes para abrir; conflitos aguardam sua escolha.'))
         self.offline_tree = QTreeWidget()
-        self.offline_tree.setHeaderLabels(['Cópia offline', 'Estado', 'Motivo'])
+        self.offline_tree.setHeaderLabels(['Mantido no computador', 'Estado', 'Motivo'])
         self.offline_tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.offline_tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.offline_tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -255,17 +253,18 @@ class Window(QMainWindow):
             lambda item: self._remember_offline_folder(item, True))
         self.offline_tree.itemCollapsed.connect(
             lambda item: self._remember_offline_folder(item, False))
+        self.offline_tree.itemDoubleClicked.connect(lambda item, column: self.open_kept_file())
         offline_layout.addWidget(self.offline_tree)
         buttons = QHBoxLayout()
-        refresh = QPushButton('Sincronizar cópias offline agora'); refresh.clicked.connect(lambda: self.start('offline-sync'))
+        refresh = QPushButton('Sincronizar arquivos mantidos agora'); refresh.clicked.connect(lambda: self.start('offline-sync'))
         buttons.addWidget(refresh)
         for choice, text in [('local', 'Usar cópia local'), ('remote', 'Usar versão da nuvem')]:
             button = QPushButton(text); button.clicked.connect(lambda checked=False, option=choice: self.resolve_offline(option)); buttons.addWidget(button)
-        self.offline_release_button = QPushButton('Liberar cópia offline')
+        self.offline_release_button = QPushButton('Liberar espaço')
         self.offline_release_button.clicked.connect(lambda: self.release_selected(True))
         buttons.addWidget(self.offline_release_button)
         offline_layout.addLayout(buttons)
-        self.offline_tab_index = self.tabs.addTab(offline_page, 'Cópias offline')
+        self.offline_tab_index = self.tabs.addTab(offline_page, 'No computador')
         self.activity = QPlainTextEdit(); self.activity.setReadOnly(True)
         self.tabs.addTab(self.activity, "Atividade")
         self.issues = QPlainTextEdit(); self.issues.setReadOnly(True)
@@ -321,7 +320,7 @@ class Window(QMainWindow):
         edit_ignore = QPushButton('Abrir .lumeignore no editor')
         edit_ignore.clicked.connect(self.open_ignore)
         form.addRow('', edit_ignore)
-        note = QLabel('No modo sob demanda, use Manter neste computador para escolher cópias offline.\nAs exclusões do .lumeignore são aplicadas à montagem ao reconectar o Drive.')
+        note = QLabel('No modo sob demanda, use Manter neste computador para deixar arquivos disponíveis sem internet.\nAs exclusões do .lumeignore são aplicadas à montagem ao reconectar o Drive.')
         note.setWordWrap(True); form.addRow("", note)
         background_note = QLabel('Fechar a janela mantém o app em segundo plano. Para encerrar, use Aplicativo → Sair ou o ícone próximo ao relógio.')
         background_note.setWordWrap(True); form.addRow('', background_note)
@@ -335,8 +334,8 @@ class Window(QMainWindow):
         self.tray.setToolTip('Lume Sync' + profile_label + ' · em segundo plano')
         menu = QMenu(self)
         menu.addAction('Abrir Lume Sync' + profile_label, self.restore_window)
-        menu.addAction('Pausar cópias offline', self.pause)
-        menu.addAction('Retomar cópias offline', self.resume_offline)
+        menu.addAction('Pausar arquivos mantidos', self.pause)
+        menu.addAction('Retomar arquivos mantidos', self.resume_offline)
         menu.addAction('Sair', self.request_quit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(lambda reason: self.restore_window() if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
@@ -348,7 +347,7 @@ class Window(QMainWindow):
         self.apply_theme()
         if self.needs_connection():
             self.show_connection_prompt()
-        self.log('Pronto. ' + ('Drive sob demanda; cópias offline somente dos itens marcados.' if self.is_online() else 'Modo de cópia local.'))
+        self.log('Pronto. ' + ('Drive sob demanda; somente itens marcados permanecem no computador.' if self.is_online() else 'Modo de cópia local.'))
 
     def update_tray(self):
         if QSystemTrayIcon.isSystemTrayAvailable():
@@ -473,8 +472,8 @@ class Window(QMainWindow):
         if online:
             self.card_titles['equal'].setText('Acesso ao Drive')
             self.card_titles['upload'].setText('Cache temporário · alvo')
-            self.card_titles['download'].setText('Cópias offline selecionadas')
-            self.table.setToolTip('Na nuvem: acesso sob demanda, podendo usar cache temporário. Offline: cópia sincronizada na pasta Offline.')
+            self.card_titles['download'].setText('Mantidos no computador')
+            self.table.setToolTip('Na nuvem: acesso sob demanda. Manter neste computador: disponível também sem internet.')
             if not self.offline_paused:
                 self.timer.start(max(15, self.config.get('interval',60))*1000)
             ignore = Path(self.config.get('ignore_file', ''))
@@ -502,7 +501,7 @@ class Window(QMainWindow):
         self.cards['attention'].setText(str(attention))
         self.show_errors(warnings)
         self.status.setText('Seu Drive, sem cópia integral no computador' if result['mounted'] else 'Conecte o Drive para acessar pelo Dolphin')
-        self.subtitle.setText(f"{len(self.online_entries)} itens nesta pasta · /{self.current_relative} · Offline em {self.config.get('offline_local', '')}")
+        self.subtitle.setText(f"{len(self.online_entries)} itens nesta pasta · /{self.current_relative}")
         self.back_button.setEnabled(bool(self.current_relative))
         if self.file_errors:
             self.status.setText('1 arquivo com erro' if len(self.file_errors) == 1 else f'{len(self.file_errors)} arquivos com erro')
@@ -572,6 +571,14 @@ class Window(QMainWindow):
         if item is None:
             return None
         return self.offline_action_by_path.get(item.data(0, Qt.ItemDataRole.UserRole))
+
+    def open_kept_file(self):
+        action = self.selected_offline_action()
+        if action is None:
+            return
+        path = Path(self.config.get('offline_local', '')) / action.path
+        if path.is_file() and not path.is_symlink():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def update_errors(self, errors):
         # A metadata refresh must not erase a failed transfer.
@@ -667,36 +674,38 @@ class Window(QMainWindow):
         rid = self.selected_online_entry.get('ID')
         selected_pin = pin_for_entry(self.selected_online_entry, self.current_relative, self.config.get('pins', []), self.config.get('offline_excludes', []))
         if selected_pin and any(pin['remote_id'] == rid for pin in self.config.get('pins', [])):
-            if QMessageBox.question(self, 'Parar de manter offline', 'Parar a sincronização offline deste item? As cópias locais serão preservadas.') == QMessageBox.StandardButton.Yes:
+            if QMessageBox.question(self, 'Parar de manter neste computador', 'Parar de manter este item disponível sem internet? A cópia local será preservada até você liberar espaço.') == QMessageBox.StandardButton.Yes:
                 self.config['pins'] = [pin for pin in self.config['pins'] if pin['remote_id'] != rid]
                 save(self.config)
                 self.start('scan')
             return
-        if QMessageBox.question(self, 'Manter neste computador', 'Baixar este item e manter uma cópia sincronizada na pasta Offline? Pastas incluem todos os seus arquivos não ignorados.') == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, 'Manter neste computador', 'Baixar este item para que continue disponível sem internet? Pastas incluem todos os seus arquivos não ignorados.') == QMessageBox.StandardButton.Yes:
             self.start('pin')
 
     def release_selected(self, offline=False):
         if self.worker and self.worker.isRunning():
             return
         if offline:
-            action = self.selected_offline_action()
-            if action is None:
-                QMessageBox.information(self, 'Selecione um arquivo', 'Selecione um arquivo na lista de cópias offline.')
+            item = self.offline_tree.currentItem()
+            if item is None:
+                QMessageBox.information(self, 'Selecione um item', 'Selecione um arquivo ou pasta na lista de itens mantidos no computador.')
                 return
-            path = action.path
+            path = item.data(0, Qt.ItemDataRole.UserRole) or item.data(0, Qt.ItemDataRole.UserRole + 1)
+            if not path:
+                return
         else:
             row = self.table.currentRow()
             if not 0 <= row < len(self.online_entries):
                 return
             entry = self.online_entries[row]
             pin = pin_for_entry(entry, self.current_relative, self.config.get('pins', []), self.config.get('offline_excludes', []))
-            if not pin or entry.get('IsDir'):
+            if not pin:
                 return
             path = pin['path']
-        answer = QMessageBox.question(self, 'Liberar cópia offline',
-            f'Remover somente a cópia offline de {path}?\n\n'
-            'O arquivo continuará no Google Drive e não será baixado novamente até você marcar Manter neste computador. '
-            'A remoção só será feita se a cópia estiver igual à nuvem. Feche o arquivo antes de continuar.')
+        answer = QMessageBox.question(self, 'Liberar espaço',
+            f'Remover somente a cópia mantida no computador de {path}?\n\n'
+            'O conteúdo continuará no Google Drive e não será baixado novamente até você marcar Manter neste computador. '
+            'Para pastas, todos os arquivos locais serão verificados antes da remoção. Sincronize as pendências e feche os arquivos antes de continuar.')
         if answer == QMessageBox.StandardButton.Yes:
             self.start('release-offline', release_path=path)
 
@@ -705,7 +714,7 @@ class Window(QMainWindow):
         if action is None: return
         if action.kind not in ('conflict', 'deletion'): return
         if choice == 'local' and action.local is None or choice == 'remote' and action.remote is None: return
-        if QMessageBox.question(self, 'Resolver cópia offline', f'Usar a versão {choice} de {action.path}?') == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, 'Resolver arquivo mantido', f'Usar a versão {choice} de {action.path}?') == QMessageBox.StandardButton.Yes:
             self.start('offline-resolve', [action], {action.path: choice})
 
     def open_ignore(self):
@@ -924,9 +933,9 @@ class Window(QMainWindow):
             self.pin_button.setEnabled(valid and not (self.worker and self.worker.isRunning()))
             entry = self.online_entries[row] if valid else None
             selected_pin = pin_for_entry(entry, self.current_relative, self.config.get('pins', []), self.config.get('offline_excludes', [])) if entry else None
-            self.release_button.setEnabled(bool(selected_pin and not entry.get('IsDir') and not (self.worker and self.worker.isRunning())))
+            self.release_button.setEnabled(bool(selected_pin and not (self.worker and self.worker.isRunning())))
             pinned = valid and any(pin['remote_id'] == self.online_entries[row].get('ID') for pin in self.config.get('pins', []))
-            self.pin_button.setText('Parar de manter offline' if pinned else 'Manter neste computador')
+            self.pin_button.setText('Parar de manter neste computador' if pinned else 'Manter neste computador')
             return
         row = self.table.currentRow()
         action = self.rows[row] if hasattr(self, "rows") and 0 <= row < len(self.rows) else None
@@ -957,7 +966,7 @@ class Window(QMainWindow):
         if self.is_online():
             self.timer.start(max(15, self.config.get('interval',60))*1000)
             self.tick()
-            self.log('Cópias offline retomadas. O acesso pelo Dolphin é independente.')
+            self.log('Sincronização dos arquivos mantidos retomada. O acesso pelo Dolphin é independente.')
         else:
             self.auto.setChecked(True)
 
@@ -975,7 +984,7 @@ class Window(QMainWindow):
             self.log("Pausa solicitada; a transferência atual será concluída.")
         else:
             self.pause_button.setEnabled(False)
-            self.log('Cópias offline pausadas. O acesso e as transferências pelo Dolphin continuam ativos.' if self.is_online() else 'Sincronização periódica pausada.')
+            self.log('Sincronização dos arquivos mantidos pausada. O acesso e as transferências pelo Dolphin continuam ativos.' if self.is_online() else 'Sincronização periódica pausada.')
 
     def connect_google(self):
         if self.worker and self.worker.isRunning(): return

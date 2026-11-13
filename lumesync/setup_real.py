@@ -55,6 +55,34 @@ def add_place(places: Path, folder: Path, profile=''):
         temporary.unlink(missing_ok=True)
 
 
+def remove_place(places: Path, folder: Path):
+    """Remove somente o favorito exato e preserva um backup do arquivo XBEL."""
+    if not places.exists():
+        return False
+    original = places.read_bytes()
+    root = ET.fromstring(original)
+    if root.tag != 'xbel':
+        raise ValueError('Formato inesperado do arquivo de locais do Dolphin')
+    href = folder.absolute().as_uri()
+    matches = [item for item in root.findall('bookmark') if item.get('href') == href]
+    if not matches:
+        return False
+    for item in matches:
+        root.remove(item)
+    backup = places.with_name(places.name+'.lume-backup-'+str(time.time_ns()))
+    backup.write_bytes(original);os.chmod(backup,0o600)
+    if places.read_bytes() != original:
+        raise RuntimeError('Os locais do Dolphin mudaram. Execute novamente.')
+    temporary = places.with_name(places.name+'.lume-'+uuid.uuid4().hex+'.tmp')
+    try:
+        ET.indent(root, space=' ')
+        temporary.write_bytes(b'<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xbel>\n'+ET.tostring(root, encoding='utf-8'))
+        os.chmod(temporary,0o600);os.replace(temporary,places)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return True
+
+
 def prepare(home: Path, data: Path, root_id: str):
     parent = home/('Lume Sync' + (f' - {PROFILE_NAME}' if PROFILE_NAME else ''))
     folder = parent/'Google Drive'

@@ -77,8 +77,11 @@ def runtime_packages(venv):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT/'dist')
+    parser.add_argument('--release', default='1', help='Revisão RPM; use, por exemplo, 2.test1 para testes')
     parser.add_argument('--sign-key', help='Identidade GPG existente para assinar o RPM com rpmsign')
     args = parser.parse_args()
+    if not re.fullmatch(r'[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*', args.release):
+        parser.error('Revisão RPM inválida.')
     if sys.prefix == sys.base_prefix:
         parser.error('Use bash packaging/build-rpm.sh dentro do projeto com .venv preparada.')
     release = platform.freedesktop_os_release()
@@ -151,6 +154,7 @@ def main():
         spec = (ROOT/'packaging/lumesync.spec.in').read_text()
         requires = sorted(set(packages) | {'rclone', 'fuse3', 'systemd', 'xdg-utils'})
         spec = spec.replace('@VERSION@', version).replace('@REQUIRES@', ', '.join(requires))
+        spec = spec.replace('Release: 1%{?dist}', 'Release: ' + args.release + '%{?dist}')
         specpath = top/'SPECS/lumesync.spec'; specpath.write_text(spec)
         build_command = [builder, '-bb', '--define', '_topdir ' + str(top),
                          '--define', '_tmppath ' + str(work), '--define', '_buildhost localhost',

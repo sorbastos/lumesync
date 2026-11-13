@@ -157,6 +157,8 @@ class SetupFolderTests(unittest.TestCase):
                 online.setup(home, old)
             self.assertTrue(provider.request.call_args.args[1].endswith('/Selected123'))
             self.assertEqual(factory.call_args.args[0]['root_id'], 'Selected123')
+            self.assertEqual(factory.call_args.args[0]['offline_local'], str(data/'kept-files'))
+            self.assertFalse((home/'Lume Sync/Offline').exists())
             controller.configure_backend.assert_called_once()
             controller.start.assert_called_once()
 
