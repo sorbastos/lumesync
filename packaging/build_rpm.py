@@ -1,4 +1,4 @@
-"""Constrói um RPM local Fedora 44, sem sudo e sem dados do usuário."""
+"""Constrói um RPM local Fedora 45, sem sudo e sem dados do usuário."""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -32,7 +32,7 @@ def runtime_packages(venv):
     ownership_cache = {}
     checked = set()
     missing = []
-    site = venv/'lib/python3.14/site-packages'
+    site = venv/f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages'
     qt = site/'PySide6/Qt'
     libraries = [site/'PySide6'/name for name in ('QtCore.abi3.so', 'QtGui.abi3.so', 'QtWidgets.abi3.so', 'QtNetwork.abi3.so')]
     libraries += list((site/'shiboken6').glob('*.so*'))
@@ -85,8 +85,8 @@ def main():
     if sys.prefix == sys.base_prefix:
         parser.error('Use bash packaging/build-rpm.sh dentro do projeto com .venv preparada.')
     release = platform.freedesktop_os_release()
-    if (release.get('ID'), release.get('VERSION_ID'), platform.machine(), sys.version_info[:2]) != ('fedora', '44', 'x86_64', (3, 14)):
-        parser.error('Este alvo requer Fedora 44 x86_64 e Python 3.14.')
+    if (release.get('ID'), release.get('VERSION_ID'), platform.machine(), sys.version_info[:2]) != ('fedora', '45', 'x86_64', (3, 15)):
+        parser.error('Este alvo requer Fedora 45 x86_64 e Python 3.15. Execute bash setup.sh para preparar o ambiente.')
     builder = os.environ.get('RPMBUILD') or shutil.which('rpmbuild')
     if not builder:
         parser.error('Instale rpm-build ou informe RPMBUILD=/caminho/para/rpmbuild.')
@@ -97,7 +97,7 @@ def main():
         work = Path(directory); wheels = work/'wheels'; wheels.mkdir()
         python = Path(sys.executable)
         pip = [python, '-I', '-m', 'pip', '--isolated', '--require-virtualenv']
-        run([*pip, 'download', '--require-hashes', '--only-binary=:all:', '--no-deps', '-r', ROOT/'packaging/requirements-fedora44.txt', '--dest', wheels], env=env)
+        run([*pip, 'download', '--require-hashes', '--only-binary=:all:', '--no-deps', '-r', ROOT/'packaging/requirements-fedora45.txt', '--dest', wheels], env=env)
         run([*pip, 'wheel', '--no-deps', '--wheel-dir', wheels, ROOT], env=env)
         app_wheels = list(wheels.glob('lume_sync-*.whl'))
         if len(app_wheels) != 1:
@@ -139,11 +139,11 @@ def main():
             shutil.copyfile(ROOT/'packaging'/name, folder/name)
         docs = payload/'usr/share/doc/lumesync'; docs.mkdir(parents=True)
         shutil.copyfile(ROOT/'README.md', docs/'README.md')
-        shutil.copyfile(ROOT/'packaging/requirements-fedora44.txt', docs/'requirements-fedora44.txt')
+        shutil.copyfile(ROOT/'packaging/requirements-fedora45.txt', docs/'requirements-fedora45.txt')
         manifest = ''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in sorted(wheels.glob('*.whl')))
         (docs/'wheels.sha256').write_text(manifest)
         (docs/'NOTICE').write_text('O aplicativo ainda não tem licença de redistribuição definida.\n'
-                                 'As dependências preservam suas licenças em opt/lumesync/venv/lib/python3.14/site-packages.\n')
+                                 'As dependências preservam suas licenças no site-packages do ambiente privado.\n')
         top = work/'rpmbuild'
         for name in ('SOURCES', 'SPECS', 'BUILD', 'BUILDROOT', 'RPMS', 'SRPMS'):
             (top/name).mkdir(parents=True)
@@ -152,7 +152,7 @@ def main():
             for child in sorted(payload.iterdir()):
                 stream.add(child, arcname=child.name)
         spec = (ROOT/'packaging/lumesync.spec.in').read_text()
-        requires = sorted(set(packages) | {'rclone', 'fuse3', 'systemd', 'xdg-utils'})
+        requires = sorted(set(packages) | {'rclone', 'fuse3', 'systemd', 'xdg-utils', 'python(abi) = 3.15', 'system-release(45)'})
         spec = spec.replace('@VERSION@', version).replace('@REQUIRES@', ', '.join(requires))
         spec = spec.replace('Release: 1%{?dist}', 'Release: ' + args.release + '%{?dist}')
         specpath = top/'SPECS/lumesync.spec'; specpath.write_text(spec)

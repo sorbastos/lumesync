@@ -3,6 +3,15 @@ set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 unset PYTHONPATH PYTHONHOME
 export PYTHONNOUSERSITE=1
+if [[ -f .venv/pyvenv.cfg && -x .venv/bin/python ]]; then
+  configured=$(sed -n 's/^version = \([0-9]*\.[0-9]*\).*/\1/p' .venv/pyvenv.cfg)
+  current=$(.venv/bin/python -I -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+  if [[ -n "$configured" && "$configured" != "$current" ]]; then
+    backup=".venv.backup-$(date +%Y%m%d-%H%M%S)-$$"
+    mv -- .venv "$backup"
+    printf 'Python alterado de %s para %s. Ambiente anterior preservado em %s.\n' "$configured" "$current" "$backup"
+  fi
+fi
 if [[ ! -e .venv ]]; then
   "${PYTHON_BIN:-python3}" -c 'import sys; assert sys.version_info >= (3, 11), "Requer Python 3.11 ou superior"'
   "${PYTHON_BIN:-python3}" -m venv .venv

@@ -18,10 +18,10 @@ O acesso online usa cache e ocupa espaço no disco. Os arquivos mantidos no comp
 
 ## Instalar no Fedora
 
-O pacote RPM é preparado para **Fedora 44 x86_64**. Depois de baixar o arquivo:
+O pacote RPM é preparado para **Fedora 45 x86_64 e Python 3.15**. Depois de baixar o arquivo:
 
 ```bash
-sudo dnf install ./lumesync-0.6.0-1.fc44.x86_64.rpm
+sudo dnf install ./lumesync-0.6.0-1.fc45.x86_64.rpm
 ```
 
 Abra **Lume Sync** pelo menu de aplicativos. A pasta do Drive é preparada automaticamente após conectar a conta.

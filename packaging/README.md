@@ -1,6 +1,6 @@
 # Pacote RPM
 
-Alvo: **Fedora 44, x86_64, Python 3.14**. Pacote local, sem assinatura; não é um pacote oficial do Fedora.
+Alvo: **Fedora 45, x86_64, Python 3.15**. Pacote local, sem assinatura; não é um pacote oficial do Fedora.
 
 ## Construir
 
@@ -11,14 +11,14 @@ bash setup.sh
 bash packaging/build-rpm.sh
 ```
 
-O RPM e seu SHA-256 ficam em `dist/`. A construção baixa wheels do PyPI com as versões fixadas em `requirements-fedora44.txt`. Não usa sudo nem instala dependências Python globais. Apenas PySide6-Essentials é incluído, pois o app usa Qt Widgets.
+O RPM e seu SHA-256 ficam em `dist/`. A construção baixa wheels do PyPI com as versões e hashes fixados em `requirements-fedora45.txt`. Não usa sudo nem instala dependências Python globais. Apenas PySide6-Essentials é incluído, pois o app usa Qt Widgets.
 
 Para usar um rpmbuild extraído localmente, defina `RPMBUILD=/caminho/para/rpmbuild` antes do comando. Os pacotes que fornecem as bibliotecas nativas são identificados no Fedora usado para construir; gere outro pacote para outra versão do sistema.
 
 ## Instalar e remover
 
 ```bash
-sudo dnf install ./dist/lumesync-0.4.1-1.fc44.x86_64.rpm
+sudo dnf install ./dist/lumesync-0.6.0-1.fc45.x86_64.rpm
 sudo dnf remove lumesync
 ```
 
@@ -45,6 +45,8 @@ LUMESYNC_DATA_DIR="$PWD/runtime" lume-sync
 ```
 
 O pacote contém licenças das dependências nos respectivos diretórios `*.dist-info`. A licença de redistribuição do aplicativo ainda não foi definida. Não há configuração de início automático nem migração de credenciais feita pelo instalador.
+
+Após atualizar o Fedora, reconstrua o RPM para a nova versão do sistema e do Python. O pacote exige a versão do Fedora e a ABI do Python usadas na construção. No projeto, `bash setup.sh` detecta a troca da versão do Python, preserva a `.venv` anterior como backup e prepara outra com as dependências reinstaladas.
 
 ## Verificação e assinatura
 
